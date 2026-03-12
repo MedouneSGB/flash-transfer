@@ -1,24 +1,24 @@
-/* Flash⚡Transfer — App Logic */
+/* Flash⚡Transfer — App Logic (Tauri 2) */
 
-const { invoke, event } = window.__TAURI__;
+// ── Tauri 2 API ──────────────────────────────────────────────────────────
+const invoke = window.__TAURI__.core.invoke;
 const { listen } = window.__TAURI__.event;
-const { open } = window.__TAURI__.dialog;
+const { open: openDialog } = window.__TAURI__.dialog;
 
 // ── State ────────────────────────────────────────────────────────────────
-let state = {
+const state = {
   peers: [],
   selectedPeer: null,
   selectedFileLan: null,
   selectedFileCode: null,
   selectedFileIp: null,
-  currentTransfer: null,
-  relayCode: null,
-  localIp: null,
   publicIp: null,
+  localIp: null,
 };
 
 // ── Utils ────────────────────────────────────────────────────────────────
 function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
   if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
@@ -26,13 +26,14 @@ function formatBytes(bytes) {
 }
 
 function formatSpeed(mbps) {
+  if (!mbps || mbps <= 0) return '0 MB/s';
   if (mbps < 1) return (mbps * 1000).toFixed(0) + ' KB/s';
   if (mbps > 1000) return (mbps / 1000).toFixed(1) + ' GB/s';
   return mbps.toFixed(1) + ' MB/s';
 }
 
 function formatEta(secs) {
-  if (secs <= 0 || !isFinite(secs)) return '--';
+  if (!secs || secs <= 0 || !isFinite(secs)) return '--';
   if (secs < 60) return Math.ceil(secs) + 's';
   if (secs < 3600) return Math.floor(secs / 60) + 'm ' + Math.ceil(secs % 60) + 's';
   return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
@@ -46,7 +47,6 @@ function toast(message, type = 'info', duration = 4000) {
   el.innerHTML = `<span>${icons[type] || '⚡'}</span><span>${message}</span>`;
   container.appendChild(el);
   setTimeout(() => {
-    el.style.animation = 'none';
     el.style.opacity = '0';
     el.style.transform = 'translateX(120%)';
     el.style.transition = 'all 0.2s';
@@ -66,8 +66,8 @@ function showProgress(fileName, mode) {
 }
 
 function updateProgress(pct, speed, eta, done, total) {
-  document.getElementById('progressBar').style.width = pct.toFixed(1) + '%';
-  document.getElementById('progPercent').textContent = pct.toFixed(1) + '%';
+  document.getElementById('progressBar').style.width = Math.min(pct, 100).toFixed(1) + '%';
+  document.getElementById('progPercent').textContent = Math.min(pct, 100).toFixed(1) + '%';
   document.getElementById('progSpeed').textContent = formatSpeed(speed);
   document.getElementById('progEta').textContent = formatEta(eta);
   document.getElementById('progBytes').textContent = formatBytes(done) + ' / ' + formatBytes(total);
@@ -83,20 +83,18 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
-    const panelId = 'tab-' + tab.dataset.tab;
-    document.getElementById(panelId).classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
   });
 });
 
-// Sub-tabs within internet cards
+// Sub-tabs
 document.querySelectorAll('.internet-card').forEach(card => {
   card.querySelectorAll('.sub-tab').forEach(st => {
     st.addEventListener('click', () => {
       card.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
       card.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
       st.classList.add('active');
-      const panelId = 'sub-' + st.dataset.subtab;
-      document.getElementById(panelId).classList.add('active');
+      document.getElementById('sub-' + st.dataset.subtab).classList.add('active');
     });
   });
 });
@@ -115,17 +113,15 @@ async function initTauriListeners() {
 
   await listen('transfer-done', (event) => {
     hideProgress();
-    const { file_name, save_path, avg_speed_mbps, elapsed_secs } = event.payload;
+    const { file_name, save_path, avg_speed_mbps } = event.payload;
     const speed = avg_speed_mbps > 0 ? ` • ${formatSpeed(avg_speed_mbps)}` : '';
     const loc = save_path ? ` → ${save_path}` : '';
     toast(`✓ ${file_name} transféré${speed}${loc}`, 'success', 6000);
-    state.currentTransfer = null;
   });
 
   await listen('transfer-error', (event) => {
     hideProgress();
     toast(event.payload.message, 'error', 8000);
-    state.currentTransfer = null;
   });
 
   await listen('receiver-started', () => {
@@ -133,28 +129,27 @@ async function initTauriListeners() {
   });
 
   await listen('relay-status', (event) => {
-    const { code, connected, message } = event.payload;
-    document.getElementById('codeHint').textContent = message;
+    document.getElementById('codeHint').textContent = event.payload.message;
   });
 
   await listen('relay-peer-connected', () => {
-    document.getElementById('codeHint').textContent = '⚡ Destinataire connecté! Envoi en cours...';
-    toast('Destinataire connecté!', 'success');
+    document.getElementById('codeHint').textContent = '⚡ Destinataire connecté ! Envoi en cours...';
+    showProgress(state.selectedFileCode?.name || '...', 'Envoi via relay...');
+    toast('Destinataire connecté !', 'success');
   });
 }
 
-// ── Peers rendering ───────────────────────────────────────────────────────
+// ── Peers ─────────────────────────────────────────────────────────────────
 function renderPeers() {
   const list = document.getElementById('peersList');
   document.getElementById('peerCount').textContent = state.peers.length;
 
   if (state.peers.length === 0) {
-    list.innerHTML = `
-      <div class="no-peers">
-        <div class="scan-anim">📡</div>
-        <p>Scan en cours...</p>
-        <p class="hint">Les appareils avec Flash⚡Transfer apparaîtront ici</p>
-      </div>`;
+    list.innerHTML = `<div class="no-peers">
+      <div class="scan-anim">📡</div>
+      <p>Scan en cours...</p>
+      <p class="hint">Les appareils avec Flash⚡Transfer apparaîtront ici</p>
+    </div>`;
     return;
   }
 
@@ -169,16 +164,11 @@ function renderPeers() {
         </div>
       </div>
       <div class="peer-online"></div>
-    </div>
-  `).join('');
+    </div>`).join('');
 
   list.querySelectorAll('.peer-card').forEach(card => {
     card.addEventListener('click', () => {
-      state.selectedPeer = {
-        ip: card.dataset.ip,
-        port: parseInt(card.dataset.port),
-        name: card.dataset.name,
-      };
+      state.selectedPeer = { ip: card.dataset.ip, port: parseInt(card.dataset.port), name: card.dataset.name };
       renderPeers();
       updatePeerTarget();
     });
@@ -195,237 +185,188 @@ function updatePeerTarget() {
   }
 }
 
-// ── File selection helpers ────────────────────────────────────────────────
-function setupFilePicker(btnId, inputId, zone, nameId, sizeId, key, clearId) {
-  const input = document.getElementById(inputId);
-  const btn = document.getElementById(btnId);
-  const clearBtn = document.getElementById(clearId);
-  const dropZone = document.getElementById(zone);
-  const generate = document.getElementById('btnGenerateCode');
-
-  function setFile(file) {
-    state[key] = file;
-    document.getElementById(nameId).textContent = file.name;
-    document.getElementById(sizeId).textContent = formatBytes(file.size);
-    document.querySelector(`#${zone}`).style.display = 'none';
-    document.querySelector(`#selected${key.replace('selectedF', 'F').replace('selected', '')}`).style.display = 'flex';
-
-    // Expose correct selected file
-    if (key === 'selectedFileCode') {
-      const el = document.getElementById('selectedFileCode');
-      const dropEl = document.getElementById('dropZoneCode');
-      el.style.display = 'flex';
-      dropEl.style.display = 'none';
-      if (generate) { generate.disabled = false; }
-    } else if (key === 'selectedFileLan') {
-      document.getElementById('selectedFileLan').style.display = 'flex';
-      document.getElementById('dropZoneLan').style.display = 'none';
-      updatePeerTarget();
-    } else if (key === 'selectedFileIp') {
-      document.getElementById('selectedFileIp').style.display = 'flex';
-      document.getElementById('dropZoneIp').style.display = 'none';
-    }
-  }
-
-  btn.addEventListener('click', async () => {
-    const path = await open({ multiple: false, title: 'Sélectionner un fichier' });
-    if (path) {
-      // Tauri returns file path as string
-      const name = path.split(/[\\/]/).pop();
-      const fakeFile = { name, path, size: 0 };
-      // Get real file size
-      try {
-        const meta = await invoke('get_file_size', { path }).catch(() => 0);
-        fakeFile.size = meta || 0;
-      } catch {}
-      state[key] = fakeFile;
-      document.getElementById(nameId).textContent = name;
-      document.getElementById(sizeId).textContent = fakeFile.size > 0 ? formatBytes(fakeFile.size) : 'Calcul...';
-      if (key === 'selectedFileLan') {
-        document.getElementById('selectedFileLan').style.display = 'flex';
-        document.getElementById('dropZoneLan').style.display = 'none';
-        updatePeerTarget();
-      } else if (key === 'selectedFileCode') {
-        document.getElementById('selectedFileCode').style.display = 'flex';
-        document.getElementById('dropZoneCode').style.display = 'none';
-        if (generate) generate.disabled = false;
-      } else if (key === 'selectedFileIp') {
-        document.getElementById('selectedFileIp').style.display = 'flex';
-        document.getElementById('dropZoneIp').style.display = 'none';
-      }
-    }
-  });
-
-  clearBtn.addEventListener('click', () => {
-    state[key] = null;
-    if (key === 'selectedFileLan') {
-      document.getElementById('selectedFileLan').style.display = 'none';
-      document.getElementById('dropZoneLan').style.display = 'flex';
-      updatePeerTarget();
-    } else if (key === 'selectedFileCode') {
-      document.getElementById('selectedFileCode').style.display = 'none';
-      document.getElementById('dropZoneCode').style.display = 'flex';
-      document.getElementById('codeDisplay').style.display = 'none';
-      if (generate) generate.disabled = true;
-    } else if (key === 'selectedFileIp') {
-      document.getElementById('selectedFileIp').style.display = 'none';
-      document.getElementById('dropZoneIp').style.display = 'flex';
-    }
-  });
-
-  // Drag and drop
-  if (dropZone) {
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('dragover');
+// ── File selection (Tauri 2 dialog) ──────────────────────────────────────
+async function pickFile() {
+  try {
+    const path = await openDialog({
+      multiple: false,
+      title: 'Sélectionner un fichier',
     });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
-      const files = e.dataTransfer.files;
-      if (files.length > 0) {
-        const f = files[0];
-        const pathEntry = e.dataTransfer.items[0]?.getAsFile();
-        // We'll use the file path approach via Tauri webview
-        state[key] = { name: f.name, path: f.path || f.name, size: f.size };
-        document.getElementById(nameId).textContent = f.name;
-        document.getElementById(sizeId).textContent = formatBytes(f.size);
-        if (key === 'selectedFileLan') {
-          document.getElementById('selectedFileLan').style.display = 'flex';
-          document.getElementById('dropZoneLan').style.display = 'none';
-          updatePeerTarget();
-        } else if (key === 'selectedFileCode') {
-          document.getElementById('selectedFileCode').style.display = 'flex';
-          document.getElementById('dropZoneCode').style.display = 'none';
-          if (generate) generate.disabled = false;
-        } else if (key === 'selectedFileIp') {
-          document.getElementById('selectedFileIp').style.display = 'flex';
-          document.getElementById('dropZoneIp').style.display = 'none';
-        }
-      }
-    });
-    dropZone.addEventListener('click', () => btn.click());
+    if (!path) return null;
+    // Tauri 2 returns string path
+    const filePath = typeof path === 'string' ? path : path[0];
+    const name = filePath.replace(/\\/g, '/').split('/').pop();
+    const size = await invoke('get_file_size', { path: filePath }).catch(() => 0);
+    return { name, path: filePath, size };
+  } catch (e) {
+    console.error('File picker error:', e);
+    toast('Erreur sélection fichier: ' + e, 'error');
+    return null;
   }
 }
 
-// ── LAN Send ──────────────────────────────────────────────────────────────
+function setSelectedFile(key, file) {
+  state[key] = file;
+
+  const configs = {
+    selectedFileLan:  { nameEl: 'fileNameLan',  sizeEl: 'fileSizeLan',  dropId: 'dropZoneLan',  selId: 'selectedFileLan'  },
+    selectedFileCode: { nameEl: 'fileNameCode', sizeEl: 'fileSizeCode', dropId: 'dropZoneCode', selId: 'selectedFileCode' },
+    selectedFileIp:   { nameEl: 'fileNameIp',   sizeEl: 'fileSizeIp',   dropId: 'dropZoneIp',   selId: 'selectedFileIp'   },
+  };
+
+  const cfg = configs[key];
+  if (!cfg) return;
+
+  if (file) {
+    document.getElementById(cfg.nameEl).textContent = file.name;
+    document.getElementById(cfg.sizeEl).textContent = file.size > 0 ? formatBytes(file.size) : '';
+    document.getElementById(cfg.dropId).style.display = 'none';
+    document.getElementById(cfg.selId).style.display = 'flex';
+    if (key === 'selectedFileCode') {
+      document.getElementById('btnGenerateCode').disabled = false;
+    }
+    if (key === 'selectedFileLan') updatePeerTarget();
+  } else {
+    document.getElementById(cfg.dropId).style.display = 'flex';
+    document.getElementById(cfg.selId).style.display = 'none';
+    if (key === 'selectedFileCode') {
+      document.getElementById('btnGenerateCode').disabled = true;
+      document.getElementById('codeDisplay').style.display = 'none';
+    }
+    if (key === 'selectedFileLan') updatePeerTarget();
+  }
+}
+
+function setupDropZone(dropId, key) {
+  const zone = document.getElementById(dropId);
+  if (!zone) return;
+
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const f = files[0];
+      // Tauri webview exposes the real path via f.path (Tauri-specific)
+      const filePath = f.path || f.name;
+      setSelectedFile(key, { name: f.name, path: filePath, size: f.size });
+    }
+  });
+}
+
+// ── Button wiring ─────────────────────────────────────────────────────────
+
+// LAN file select
+document.getElementById('selectFileLan').addEventListener('click', async () => {
+  const file = await pickFile();
+  if (file) setSelectedFile('selectedFileLan', file);
+});
+document.getElementById('clearFileLan').addEventListener('click', () => setSelectedFile('selectedFileLan', null));
+setupDropZone('dropZoneLan', 'selectedFileLan');
+
+// LAN send
 document.getElementById('btnSendLan').addEventListener('click', async () => {
   if (!state.selectedFileLan || !state.selectedPeer) return;
   showProgress(state.selectedFileLan.name, `Envoi à ${state.selectedPeer.name}...`);
   try {
-    await invoke('send_file', {
-      ip: state.selectedPeer.ip,
-      filePath: state.selectedFileLan.path,
-    });
-  } catch (e) {
-    hideProgress();
-    toast(e.toString(), 'error');
-  }
+    await invoke('send_file', { ip: state.selectedPeer.ip, filePath: state.selectedFileLan.path });
+  } catch (e) { hideProgress(); toast(String(e), 'error'); }
 });
 
-// ── Code relay send ────────────────────────────────────────────────────────
+// Code relay — file select
+document.getElementById('selectFileCode').addEventListener('click', async () => {
+  const file = await pickFile();
+  if (file) setSelectedFile('selectedFileCode', file);
+});
+document.getElementById('clearFileCode').addEventListener('click', () => setSelectedFile('selectedFileCode', null));
+setupDropZone('dropZoneCode', 'selectedFileCode');
+
+// Code relay — generate
 document.getElementById('btnGenerateCode').addEventListener('click', async () => {
   if (!state.selectedFileCode) return;
   try {
-    const code = await invoke('generate_relay_code', {
-      filePath: state.selectedFileCode.path,
-    });
+    const code = await invoke('generate_relay_code', { filePath: state.selectedFileCode.path });
     document.getElementById('codeValue').textContent = code;
     document.getElementById('codeDisplay').style.display = 'flex';
     document.getElementById('codeHint').textContent = 'En attente du destinataire...';
-    showProgress(state.selectedFileCode.name, 'Connexion relay...');
-    toast(`Code généré: ${code}`, 'info', 8000);
-  } catch (e) {
-    toast(e.toString(), 'error');
-  }
+    toast(`Code généré : ${code}`, 'info', 10000);
+  } catch (e) { toast(String(e), 'error'); }
 });
 
+// Code relay — copy code
 document.getElementById('btnCopyCode').addEventListener('click', () => {
   const code = document.getElementById('codeValue').textContent;
-  navigator.clipboard.writeText(code).then(() => toast('Code copié!', 'info', 2000));
+  navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'info', 2000));
 });
 
-// ── Code relay receive ────────────────────────────────────────────────────
+// Code relay — join
 document.getElementById('btnJoinCode').addEventListener('click', async () => {
-  const code = document.getElementById('codeInputField').value.trim();
+  const code = document.getElementById('codeInputField').value.trim().toLowerCase();
   if (!code || code.length < 4) { toast('Entre un code valide', 'error'); return; }
   showProgress('En attente...', 'Connexion au relay...');
   try {
     await invoke('join_relay_room', { code });
-  } catch (e) {
-    hideProgress();
-    toast(e.toString(), 'error');
-  }
+  } catch (e) { hideProgress(); toast(String(e), 'error'); }
 });
 
-// ── IP direct send ────────────────────────────────────────────────────────
+// IP directe — file select
+document.getElementById('selectFileIp').addEventListener('click', async () => {
+  const file = await pickFile();
+  if (file) setSelectedFile('selectedFileIp', file);
+});
+document.getElementById('clearFileIp').addEventListener('click', () => setSelectedFile('selectedFileIp', null));
+setupDropZone('dropZoneIp', 'selectedFileIp');
+
+// IP directe — send
 document.getElementById('btnSendIp').addEventListener('click', async () => {
   const ip = document.getElementById('destIpInput').value.trim();
   if (!state.selectedFileIp) { toast('Sélectionne un fichier', 'error'); return; }
-  if (!ip) { toast('Entre l\'IP du destinataire', 'error'); return; }
+  if (!ip) { toast("Entre l'IP du destinataire", 'error'); return; }
   showProgress(state.selectedFileIp.name, `Envoi direct à ${ip}...`);
   try {
     await invoke('send_file', { ip, filePath: state.selectedFileIp.path });
-  } catch (e) {
-    hideProgress();
-    toast(e.toString(), 'error');
-  }
+  } catch (e) { hideProgress(); toast(String(e), 'error'); }
 });
 
-// ── Copy IP ────────────────────────────────────────────────────────────────
-document.getElementById('btnCopyIp').addEventListener('click', () => {
+// Copy public IP
+function copyPublicIp() {
   if (state.publicIp) {
     navigator.clipboard.writeText(`${state.publicIp}:45679`)
-      .then(() => toast('IP copiée!', 'info', 2000));
+      .then(() => toast('IP copiée !', 'info', 2000));
   }
-});
-document.getElementById('btnCopyIp2').addEventListener('click', () => {
-  if (state.publicIp) {
-    navigator.clipboard.writeText(`${state.publicIp}:45679`)
-      .then(() => toast('IP copiée!', 'info', 2000));
-  }
-});
+}
+document.getElementById('btnCopyIp').addEventListener('click', copyPublicIp);
+document.getElementById('btnCopyIp2').addEventListener('click', copyPublicIp);
 
-// ── Cancel transfer ────────────────────────────────────────────────────────
+// Cancel transfer
 document.getElementById('btnCancelTransfer').addEventListener('click', async () => {
   await invoke('disconnect_relay').catch(() => {});
   hideProgress();
   toast('Transfert annulé', 'info');
 });
 
-// ── Open folder ────────────────────────────────────────────────────────────
+// Open download folder
 document.getElementById('btnOpenFolder').addEventListener('click', async () => {
-  await invoke('open_download_folder');
+  await invoke('open_download_folder').catch(e => toast(String(e), 'error'));
 });
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────
 async function init() {
   await initTauriListeners();
 
-  // Setup file pickers
-  setupFilePicker('selectFileLan', 'fileInputLan', 'dropZoneLan', 'fileNameLan', 'fileSizeLan', 'selectedFileLan', 'clearFileLan');
-  setupFilePicker('selectFileCode', 'fileInputCode', 'dropZoneCode', 'fileNameCode', 'fileSizeCode', 'selectedFileCode', 'clearFileCode');
-  setupFilePicker('selectFileIp', 'fileInputIp', 'dropZoneIp', 'fileNameIp', 'fileSizeIp', 'selectedFileIp', 'clearFileIp');
-
   // Start receiver
-  try {
-    await invoke('start_receiver');
-  } catch (e) {
-    console.warn('Receiver start error:', e);
-  }
+  invoke('start_receiver').catch(e => console.warn('Receiver:', e));
 
-  // Get local IP and start LAN discovery
-  try {
-    state.localIp = await invoke('get_local_ip');
-    const hostname = state.localIp;
-    document.getElementById('deviceName').textContent = hostname;
-    await invoke('start_lan_discovery', { name: `Flash@${hostname}` });
-  } catch (e) {
-    console.warn('LAN discovery error:', e);
-  }
+  // Local IP + LAN discovery
+  invoke('get_local_ip').then(ip => {
+    state.localIp = ip;
+    document.getElementById('deviceName').textContent = `Flash@${ip}`;
+    invoke('start_lan_discovery', { name: `Flash@${ip}` }).catch(console.warn);
+  }).catch(console.warn);
 
-  // Get public IP (async)
+  // Public IP
   invoke('get_public_ip').then(ip => {
     state.publicIp = ip;
     document.getElementById('myPublicIp').textContent = ip;

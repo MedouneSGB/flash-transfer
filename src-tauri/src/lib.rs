@@ -32,6 +32,7 @@ pub fn run() {
             relay_client::disconnect_relay,
             get_local_ip,
             get_public_ip,
+            get_file_size,
             open_download_folder,
         ])
         .setup(|app| {
@@ -57,6 +58,11 @@ async fn get_public_ip() -> String {
         Ok(resp) => resp.text().await.unwrap_or_else(|_| "unavailable".to_string()),
         Err(_) => "unavailable".to_string(),
     }
+}
+
+#[tauri::command]
+fn get_file_size(path: String) -> u64 {
+    std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
 }
 
 #[tauri::command]
