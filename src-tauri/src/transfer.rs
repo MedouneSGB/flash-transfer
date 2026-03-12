@@ -1,15 +1,32 @@
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Single port — the chunk index in the header identifies each stream.
-/// Only ONE port needs to be open in the firewall.
 const BASE_PORT: u16 = 45679;
-const BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8 MB
+const BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4 MB read buffer
+
+// ─── Shared receive-progress tracker ────────────────────────────────────────
+
+struct RecvEntry {
+    bytes_done: Arc<AtomicU64>,
+    start: std::time::Instant,
+    total: u64,
+}
+
+lazy_static! {
+    /// Maps file_name → receive state, shared across concurrent chunk handlers.
+    static ref RECV_TRACKER: Mutex<HashMap<String, RecvEntry>> =
+        Mutex::new(HashMap::new());
+}
+
+// ─── Event types ────────────────────────────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ProgressEvent {
@@ -19,6 +36,12 @@ pub struct ProgressEvent {
     pub speed_mbps: f64,
     pub eta_secs: f64,
     pub percent: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ReceiveStartEvent {
+    pub file_name: String,
+    pub total_bytes: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -44,7 +67,7 @@ fn num_streams() -> usize {
     (cpus * 2).min(16).max(2)
 }
 
-// ─── SEND ──────────────────────────────────────────────────────────────────
+// ─── SEND ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn send_file(
@@ -68,8 +91,6 @@ pub async fn send_file(
     let bytes_sent = Arc::new(AtomicU64::new(0));
     let start = std::time::Instant::now();
 
-    // Divide file into N chunks, all sent to the SAME port (BASE_PORT).
-    // The receiver identifies each chunk by the chunk_index in the header.
     let chunk_size = (file_size + n as u64 - 1) / n as u64;
     let mut handles = Vec::new();
 
@@ -86,19 +107,14 @@ pub async fn send_file(
         let app = app.clone();
 
         handles.push(tokio::spawn(async move {
-            // Small stagger to avoid SYN flood on a single port
             if i > 0 {
                 tokio::time::sleep(tokio::time::Duration::from_millis(i as u64 * 20)).await;
             }
-            send_chunk(
-                &ip, BASE_PORT, &path, &file_name,
-                file_size, offset, length, i,
-                bytes_sent, app,
-            ).await
+            send_chunk(&ip, BASE_PORT, &path, &file_name, file_size, offset, length, i, bytes_sent, app).await
         }));
     }
 
-    // Progress reporter
+    // Progress reporter (sender side)
     let bytes_sent_prog = Arc::clone(&bytes_sent);
     let app_prog = app.clone();
     let file_name_prog = file_name.clone();
@@ -174,7 +190,6 @@ async fn send_chunk(
     bytes_sent: Arc<AtomicU64>,
     _app: AppHandle,
 ) -> Result<(), String> {
-    // Retry up to 15 times with 500 ms gap → up to 7.5 s wait for receiver to be ready
     let mut stream = None;
     for attempt in 0..15 {
         match TcpStream::connect(format!("{}:{}", ip, port)).await {
@@ -187,11 +202,9 @@ async fn send_chunk(
         }
     }
     let mut stream = stream.ok_or_else(|| format!("Cannot connect to {}:{}", ip, port))?;
-
     stream.set_nodelay(true).ok();
 
     let name_bytes = file_name.as_bytes();
-    // Header: [8B fileSize][4B nameLen][4B chunkIndex][8B offset][8B length][name]
     let mut header = Vec::with_capacity(32 + name_bytes.len());
     header.extend_from_slice(&file_size.to_be_bytes());
     header.extend_from_slice(&(name_bytes.len() as u32).to_be_bytes());
@@ -199,10 +212,8 @@ async fn send_chunk(
     header.extend_from_slice(&offset.to_be_bytes());
     header.extend_from_slice(&length.to_be_bytes());
     header.extend_from_slice(name_bytes);
-
     stream.write_all(&header).await.map_err(|e| e.to_string())?;
 
-    // Send file data
     use tokio::io::AsyncSeekExt;
     let mut file = tokio::fs::File::open(path).await.map_err(|e| e.to_string())?;
     file.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| e.to_string())?;
@@ -219,14 +230,12 @@ async fn send_chunk(
         remaining -= n as u64;
     }
 
-    // Wait for ACK
     let mut ack = [0u8; 3];
     stream.read_exact(&mut ack).await.map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
-// ─── RECEIVE ───────────────────────────────────────────────────────────────
+// ─── RECEIVE ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn start_receiver(
@@ -237,12 +246,11 @@ pub async fn start_receiver(
     let save_dir = get_save_dir();
     std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
 
-    // Single listener on BASE_PORT — handles ALL streams from all senders
     let listener = match TcpListener::bind(format!("0.0.0.0:{}", BASE_PORT)).await {
         Ok(l) => l,
         Err(e) => {
             let msg = format!(
-                "Impossible d'écouter sur le port {} : {}. Essaie de relancer l'app.",
+                "Impossible d'écouter sur le port {} : {}. Redémarre l'app.",
                 BASE_PORT, e
             );
             let _ = app.emit("transfer-error", TransferErrorEvent { message: msg.clone() });
@@ -261,7 +269,7 @@ pub async fn start_receiver(
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
-                            log::info!("Incoming connection from {}", addr);
+                            log::info!("Incoming from {}", addr);
                             let save_dir = save_dir_clone.clone();
                             let app = app_clone.clone();
                             tokio::spawn(async move {
@@ -298,32 +306,52 @@ async fn handle_incoming(
 ) -> Result<(), String> {
     stream.set_nodelay(true).ok();
 
-    // Read header: [8B fileSize][4B nameLen][4B chunkIndex][8B offset][8B length][name]
-    let mut file_size_buf = [0u8; 8];
-    stream.read_exact(&mut file_size_buf).await.map_err(|e| e.to_string())?;
-    let file_size = u64::from_be_bytes(file_size_buf);
+    // ── Read header ──────────────────────────────────────────────────────
+    let mut buf8 = [0u8; 8];
+    let mut buf4 = [0u8; 4];
 
-    let mut name_len_buf = [0u8; 4];
-    stream.read_exact(&mut name_len_buf).await.map_err(|e| e.to_string())?;
-    let name_len = u32::from_be_bytes(name_len_buf) as usize;
+    stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
+    let file_size = u64::from_be_bytes(buf8);
 
-    let mut chunk_idx_buf = [0u8; 4];
-    stream.read_exact(&mut chunk_idx_buf).await.map_err(|e| e.to_string())?;
-    let chunk_index = u32::from_be_bytes(chunk_idx_buf);
+    stream.read_exact(&mut buf4).await.map_err(|e| e.to_string())?;
+    let name_len = u32::from_be_bytes(buf4) as usize;
 
-    let mut offset_buf = [0u8; 8];
-    stream.read_exact(&mut offset_buf).await.map_err(|e| e.to_string())?;
-    let _offset = u64::from_be_bytes(offset_buf);
+    stream.read_exact(&mut buf4).await.map_err(|e| e.to_string())?;
+    let chunk_index = u32::from_be_bytes(buf4);
 
-    let mut length_buf = [0u8; 8];
-    stream.read_exact(&mut length_buf).await.map_err(|e| e.to_string())?;
-    let length = u64::from_be_bytes(length_buf);
+    stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
+    let _offset = u64::from_be_bytes(buf8);
+
+    stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
+    let length = u64::from_be_bytes(buf8);
 
     let mut name_buf = vec![0u8; name_len];
     stream.read_exact(&mut name_buf).await.map_err(|e| e.to_string())?;
     let file_name = String::from_utf8_lossy(&name_buf).to_string();
 
-    // Write chunk to temp file
+    // ── Register in global tracker (emit receive-start on first chunk) ───
+    let bytes_arc = {
+        let mut tracker = RECV_TRACKER.lock().unwrap();
+        if !tracker.contains_key(&file_name) {
+            // First chunk for this file: announce to the UI
+            let _ = app.emit("receive-start", ReceiveStartEvent {
+                file_name: file_name.clone(),
+                total_bytes: file_size,
+            });
+            tracker.insert(file_name.clone(), RecvEntry {
+                bytes_done: Arc::new(AtomicU64::new(0)),
+                start: std::time::Instant::now(),
+                total: file_size,
+            });
+        }
+        tracker.get(&file_name).unwrap().bytes_done.clone()
+    };
+
+    // Snapshot start time (we'll re-read from tracker for accurate elapsed)
+    let receive_start = std::time::Instant::now();
+    let _ = receive_start; // may be unused if we don't measure per-chunk speed
+
+    // ── Write chunk to temp file ─────────────────────────────────────────
     let temp_path = save_dir.join(format!("{}.part{}", file_name, chunk_index));
     let final_path = save_dir.join(&file_name);
 
@@ -336,20 +364,54 @@ async fn handle_incoming(
 
         let mut buf = vec![0u8; BUFFER_SIZE];
         let mut remaining = length;
+        // Throttle: emit every ~150 ms worth of data
+        let mut last_emit = std::time::Instant::now();
+
         while remaining > 0 {
             let to_read = (remaining as usize).min(buf.len());
             let n = stream.read(&mut buf[..to_read]).await.map_err(|e| e.to_string())?;
             if n == 0 { break; }
             temp_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
             remaining -= n as u64;
+
+            let total_done = bytes_arc.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
+
+            // Emit progress at most every 150 ms to keep UI smooth
+            if last_emit.elapsed().as_millis() >= 150 || remaining == 0 {
+                last_emit = std::time::Instant::now();
+
+                // Read elapsed from tracker
+                let (elapsed, total) = {
+                    let tracker = RECV_TRACKER.lock().unwrap();
+                    if let Some(entry) = tracker.get(&file_name) {
+                        (entry.start.elapsed().as_secs_f64(), entry.total)
+                    } else {
+                        (0.0, file_size)
+                    }
+                };
+
+                let speed = if elapsed > 0.0 { total_done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
+                let capped = total_done.min(total);
+                let eta = if speed > 0.0 { (total - capped) as f64 / (speed * 1_000_000.0) } else { 0.0 };
+                let pct = if total > 0 { capped as f64 / total as f64 * 100.0 } else { 0.0 };
+
+                let _ = app.emit("transfer-progress", ProgressEvent {
+                    file_name: file_name.clone(),
+                    bytes_done: capped,
+                    total_bytes: total,
+                    speed_mbps: speed,
+                    eta_secs: eta,
+                    percent: pct,
+                });
+            }
         }
         temp_file.flush().await.map_err(|e| e.to_string())?;
     }
 
-    // Send ACK
+    // ── ACK ──────────────────────────────────────────────────────────────
     stream.write_all(b"ACK").await.ok();
 
-    // Calculate expected chunks (same formula as sender)
+    // ── Check if all chunks present → assemble ───────────────────────────
     let n = num_streams() as u64;
     let per_chunk = (file_size + n - 1) / n;
     let chunks_expected = if per_chunk == 0 {
@@ -358,20 +420,35 @@ async fn handle_incoming(
         (0..n).filter(|&i| i * per_chunk < file_size).count()
     };
 
-    // Check all parts are present, and final file doesn't exist yet
     let all_present = !final_path.exists()
         && (0..chunks_expected).all(|i| {
             save_dir.join(format!("{}.part{}", file_name, i)).exists()
         });
 
     if all_present {
+        // Capture timing before cleanup
+        let (elapsed, total_done) = {
+            let tracker = RECV_TRACKER.lock().unwrap();
+            if let Some(entry) = tracker.get(&file_name) {
+                (entry.start.elapsed().as_secs_f64(), entry.bytes_done.load(Ordering::Relaxed))
+            } else {
+                (0.0, file_size)
+            }
+        };
+
         assemble_file(&file_name, save_dir, file_size, chunks_expected, &final_path).await?;
+
+        // Clean up tracker
+        RECV_TRACKER.lock().unwrap().remove(&file_name);
+
+        let avg_speed = if elapsed > 0.0 { total_done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
+
         let _ = app.emit("transfer-done", TransferDoneEvent {
             file_name: file_name.clone(),
             save_path: final_path.to_string_lossy().to_string(),
             total_bytes: file_size,
-            elapsed_secs: 0.0,
-            avg_speed_mbps: 0.0,
+            elapsed_secs: elapsed,
+            avg_speed_mbps: avg_speed,
         });
     }
 
@@ -402,7 +479,7 @@ async fn assemble_file(
     }
 
     out.flush().await.map_err(|e| e.to_string())?;
-    log::info!("Assembled {} ({} bytes) at {:?}", file_name, file_size, final_path);
+    log::info!("Assembled {} ({} bytes)", file_name, file_size);
     Ok(())
 }
 

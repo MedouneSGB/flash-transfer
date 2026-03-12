@@ -54,7 +54,7 @@ function toast(message, type = 'info', duration = 4000) {
   }, duration);
 }
 
-function showProgress(fileName, mode) {
+function showProgress(fileName, mode, isReceive = false) {
   document.getElementById('progFileName').textContent = fileName;
   document.getElementById('progMode').textContent = mode;
   document.getElementById('progressBar').style.width = '0%';
@@ -62,6 +62,9 @@ function showProgress(fileName, mode) {
   document.getElementById('progSpeed').textContent = '0 MB/s';
   document.getElementById('progEta').textContent = '--';
   document.getElementById('progBytes').textContent = '';
+  // Change bolt icon colour: yellow = send, cyan = receive
+  const bolt = document.querySelector('.progress-bolt');
+  if (bolt) bolt.style.filter = isReceive ? 'hue-rotate(160deg)' : '';
   document.getElementById('progressOverlay').style.display = 'flex';
 }
 
@@ -106,6 +109,11 @@ async function initTauriListeners() {
     renderPeers();
   });
 
+  await listen('receive-start', (event) => {
+    const { file_name, total_bytes } = event.payload;
+    showProgress(file_name, `📥 Réception en cours... (${formatBytes(total_bytes)})`, true);
+  });
+
   await listen('transfer-progress', (event) => {
     const { file_name, bytes_done, total_bytes, speed_mbps, eta_secs, percent } = event.payload;
     updateProgress(percent, speed_mbps, eta_secs, bytes_done, total_bytes);
@@ -116,7 +124,8 @@ async function initTauriListeners() {
     const { file_name, save_path, avg_speed_mbps } = event.payload;
     const speed = avg_speed_mbps > 0 ? ` • ${formatSpeed(avg_speed_mbps)}` : '';
     const loc = save_path ? ` → ${save_path}` : '';
-    toast(`✓ ${file_name} transféré${speed}${loc}`, 'success', 6000);
+    const icon = save_path ? '📥' : '📤';  // receive vs send
+    toast(`${icon} ${file_name} transféré${speed}${loc}`, 'success', 6000);
   });
 
   await listen('transfer-error', (event) => {
