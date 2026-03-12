@@ -34,14 +34,80 @@ pub fn run() {
             get_public_ip,
             get_file_size,
             open_download_folder,
+            configure_firewall,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             window.set_title("Flash⚡Transfer").unwrap();
+
+            // Attempt to open firewall ports silently (requires admin on Windows;
+            // if it fails, users see the manual instructions in the UI).
+            try_configure_firewall();
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running Flash⚡Transfer");
+}
+
+/// Tries to add Windows Firewall inbound rules for Flash Transfer ports.
+/// Runs silently — failure is non-fatal.
+fn try_configure_firewall() {
+    #[cfg(target_os = "windows")]
+    {
+        // Remove stale rules first (ignore errors)
+        let _ = std::process::Command::new("netsh")
+            .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-TCP"])
+            .output();
+        let _ = std::process::Command::new("netsh")
+            .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-UDP"])
+            .output();
+
+        // TCP port 45679 — file transfer
+        let tcp = std::process::Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "add", "rule",
+                "name=FlashTransfer-TCP",
+                "dir=in", "action=allow",
+                "protocol=TCP", "localport=45679",
+                "profile=private,domain",
+                "description=Flash Transfer file receive port",
+            ])
+            .output();
+
+        // UDP port 45678 — LAN peer discovery
+        let udp = std::process::Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "add", "rule",
+                "name=FlashTransfer-UDP",
+                "dir=in", "action=allow",
+                "protocol=UDP", "localport=45678",
+                "profile=private,domain",
+                "description=Flash Transfer LAN discovery",
+            ])
+            .output();
+
+        if let Ok(r) = &tcp {
+            log::info!("Firewall TCP rule: {}", String::from_utf8_lossy(&r.stdout).trim());
+        }
+        if let Ok(r) = &udp {
+            log::info!("Firewall UDP rule: {}", String::from_utf8_lossy(&r.stdout).trim());
+        }
+    }
+}
+
+/// Tauri command — called from JS to (re-)apply firewall rules on demand.
+#[tauri::command]
+async fn configure_firewall() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        try_configure_firewall();
+        return Ok("Règles pare-feu appliquées (port TCP 45679, UDP 45678).".to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok("Aucune config pare-feu nécessaire sur ce système.".to_string())
+    }
 }
 
 #[tauri::command]

@@ -352,12 +352,44 @@ document.getElementById('btnOpenFolder').addEventListener('click', async () => {
   await invoke('open_download_folder').catch(e => toast(String(e), 'error'));
 });
 
+// Manual firewall config button
+document.getElementById('btnFirewall').addEventListener('click', async () => {
+  try {
+    const msg = await invoke('configure_firewall');
+    toast('🛡 ' + msg, 'success', 5000);
+  } catch (e) {
+    toast('Firewall : ' + String(e) + ' — Lance l\'app en admin.', 'error', 8000);
+  }
+});
+
+// ── Firewall helper ──────────────────────────────────────────────────────
+async function applyFirewallRules() {
+  try {
+    const msg = await invoke('configure_firewall');
+    console.info('Firewall:', msg);
+  } catch (e) {
+    // Non-fatal: show hint to run as admin if rules couldn't be applied
+    console.warn('Firewall config failed (not admin?):', e);
+    toast(
+      'Pare-feu : Lance l\'app en tant qu\'administrateur pour ouvrir les ports automatiquement, ou ouvre le port TCP 45679 manuellement.',
+      'info',
+      10000
+    );
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 async function init() {
   await initTauriListeners();
 
+  // Apply Windows firewall rules (silent if already OK / non-admin)
+  applyFirewallRules();
+
   // Start receiver
-  invoke('start_receiver').catch(e => console.warn('Receiver:', e));
+  invoke('start_receiver').catch(e => {
+    console.warn('Receiver error:', e);
+    toast('Erreur démarrage receiver : ' + e, 'error', 8000);
+  });
 
   // Local IP + LAN discovery
   invoke('get_local_ip').then(ip => {

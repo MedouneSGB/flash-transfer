@@ -6,6 +6,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+/// Single port — the chunk index in the header identifies each stream.
+/// Only ONE port needs to be open in the firewall.
 const BASE_PORT: u16 = 45679;
 const BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8 MB
 
@@ -52,7 +54,7 @@ pub async fn send_file(
 ) -> Result<(), String> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(format!("File not found: {}", file_path));
+        return Err(format!("Fichier introuvable : {}", file_path));
     }
 
     let file_name = path
@@ -66,7 +68,8 @@ pub async fn send_file(
     let bytes_sent = Arc::new(AtomicU64::new(0));
     let start = std::time::Instant::now();
 
-    // Divide file into N chunks
+    // Divide file into N chunks, all sent to the SAME port (BASE_PORT).
+    // The receiver identifies each chunk by the chunk_index in the header.
     let chunk_size = (file_size + n as u64 - 1) / n as u64;
     let mut handles = Vec::new();
 
@@ -76,7 +79,6 @@ pub async fn send_file(
             break;
         }
         let length = chunk_size.min(file_size - offset);
-        let port = BASE_PORT + i as u16;
         let ip = ip.clone();
         let path = path.clone();
         let file_name = file_name.clone();
@@ -84,7 +86,15 @@ pub async fn send_file(
         let app = app.clone();
 
         handles.push(tokio::spawn(async move {
-            send_chunk(&ip, port, &path, &file_name, file_size, offset, length, i, bytes_sent, app).await
+            // Small stagger to avoid SYN flood on a single port
+            if i > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(i as u64 * 20)).await;
+            }
+            send_chunk(
+                &ip, BASE_PORT, &path, &file_name,
+                file_size, offset, length, i,
+                bytes_sent, app,
+            ).await
         }));
     }
 
@@ -99,7 +109,7 @@ pub async fn send_file(
             let done = bytes_sent_prog.load(Ordering::Relaxed);
             let elapsed = start.elapsed().as_secs_f64();
             let speed = if elapsed > 0.0 { done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
-            let eta = if speed > 0.0 { (file_size - done) as f64 / (speed * 1_000_000.0) } else { 0.0 };
+            let eta = if speed > 0.0 { (file_size - done.min(file_size)) as f64 / (speed * 1_000_000.0) } else { 0.0 };
             let pct = if file_size > 0 { done as f64 / file_size as f64 * 100.0 } else { 0.0 };
 
             let _ = app_prog.emit("transfer-progress", ProgressEvent {
@@ -115,10 +125,28 @@ pub async fn send_file(
         }
     });
 
+    let mut first_err: Option<String> = None;
     for h in handles {
-        h.await.map_err(|e| e.to_string())?.map_err(|e| e)?;
+        if let Err(e) = h.await.map_err(|e| e.to_string()).and_then(|r| r) {
+            if first_err.is_none() {
+                first_err = Some(e);
+            }
+        }
     }
     prog_handle.abort();
+
+    if let Some(e) = first_err {
+        let msg = if e.contains("Cannot connect") || e.contains("connection refused") {
+            format!(
+                "Connexion refusée à {}:{} — vérifie que l'app est ouverte chez le destinataire et que le port {} est autorisé dans son pare-feu.",
+                ip, BASE_PORT, BASE_PORT
+            )
+        } else {
+            e
+        };
+        let _ = app.emit("transfer-error", TransferErrorEvent { message: msg.clone() });
+        return Err(msg);
+    }
 
     let elapsed = start.elapsed().as_secs_f64();
     let avg_speed = if elapsed > 0.0 { file_size as f64 / elapsed / 1_000_000.0 } else { 0.0 };
@@ -146,21 +174,20 @@ async fn send_chunk(
     bytes_sent: Arc<AtomicU64>,
     _app: AppHandle,
 ) -> Result<(), String> {
-    // Retry logic for connection
+    // Retry up to 15 times with 500 ms gap → up to 7.5 s wait for receiver to be ready
     let mut stream = None;
-    for attempt in 0..10 {
+    for attempt in 0..15 {
         match TcpStream::connect(format!("{}:{}", ip, port)).await {
             Ok(s) => { stream = Some(s); break; }
             Err(_) => {
-                if attempt < 9 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                if attempt < 14 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 }
             }
         }
     }
     let mut stream = stream.ok_or_else(|| format!("Cannot connect to {}:{}", ip, port))?;
 
-    // Set TCP options for performance
     stream.set_nodelay(true).ok();
 
     let name_bytes = file_name.as_bytes();
@@ -207,46 +234,48 @@ pub async fn start_receiver(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
-    let n = num_streams();
     let save_dir = get_save_dir();
     std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
 
-    for i in 0..n {
-        let port = BASE_PORT + i as u16;
-        let save_dir = save_dir.clone();
-        let app = app.clone();
-        let mut shutdown_rx = shutdown_tx.subscribe();
+    // Single listener on BASE_PORT — handles ALL streams from all senders
+    let listener = match TcpListener::bind(format!("0.0.0.0:{}", BASE_PORT)).await {
+        Ok(l) => l,
+        Err(e) => {
+            let msg = format!(
+                "Impossible d'écouter sur le port {} : {}. Essaie de relancer l'app.",
+                BASE_PORT, e
+            );
+            let _ = app.emit("transfer-error", TransferErrorEvent { message: msg.clone() });
+            return Err(msg);
+        }
+    };
 
-        tokio::spawn(async move {
-            let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    let _ = app.emit("transfer-error", TransferErrorEvent { message: format!("Port {} busy: {}", port, e) });
-                    return;
-                }
-            };
+    let app_clone = app.clone();
+    let save_dir_clone = save_dir.clone();
+    let mut shutdown_rx = shutdown_tx.subscribe();
 
-            loop {
-                tokio::select! {
-                    _ = shutdown_rx.recv() => break,
-                    result = listener.accept() => {
-                        match result {
-                            Ok((stream, _)) => {
-                                let save_dir = save_dir.clone();
-                                let app = app.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = handle_incoming(stream, &save_dir, app).await {
-                                        log::error!("Receive error: {}", e);
-                                    }
-                                });
-                            }
-                            Err(_) => break,
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.recv() => break,
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, addr)) => {
+                            log::info!("Incoming connection from {}", addr);
+                            let save_dir = save_dir_clone.clone();
+                            let app = app_clone.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = handle_incoming(stream, &save_dir, app).await {
+                                    log::error!("Receive error: {}", e);
+                                }
+                            });
                         }
+                        Err(_) => break,
                     }
                 }
             }
-        });
-    }
+        }
+    });
 
     *state.receiver.lock().await = Some(ReceiverState { shutdown_tx });
     let _ = app.emit("receiver-started", ());
@@ -269,7 +298,7 @@ async fn handle_incoming(
 ) -> Result<(), String> {
     stream.set_nodelay(true).ok();
 
-    // Read header
+    // Read header: [8B fileSize][4B nameLen][4B chunkIndex][8B offset][8B length][name]
     let mut file_size_buf = [0u8; 8];
     stream.read_exact(&mut file_size_buf).await.map_err(|e| e.to_string())?;
     let file_size = u64::from_be_bytes(file_size_buf);
@@ -320,8 +349,7 @@ async fn handle_incoming(
     // Send ACK
     stream.write_all(b"ACK").await.ok();
 
-    // Calculate expected chunks using the SAME formula as the sender:
-    // sender divides file into n_streams equal parts (skipping if offset >= file_size)
+    // Calculate expected chunks (same formula as sender)
     let n = num_streams() as u64;
     let per_chunk = (file_size + n - 1) / n;
     let chunks_expected = if per_chunk == 0 {
@@ -330,7 +358,7 @@ async fn handle_incoming(
         (0..n).filter(|&i| i * per_chunk < file_size).count()
     };
 
-    // Check all parts are present, and final file doesn't exist yet (avoid double assembly)
+    // Check all parts are present, and final file doesn't exist yet
     let all_present = !final_path.exists()
         && (0..chunks_expected).all(|i| {
             save_dir.join(format!("{}.part{}", file_name, i)).exists()

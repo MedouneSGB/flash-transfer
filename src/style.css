@@ -537,6 +537,35 @@ body {
 .stat-val { font-size: 22px; font-weight: 800; color: var(--yellow); }
 .stat-lbl { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
 
+.btn-outline {
+  background: transparent;
+  color: var(--yellow);
+  border: 1.5px solid var(--yellow);
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 8px;
+}
+.btn-outline:hover {
+  background: rgba(255, 215, 0, 0.1);
+  box-shadow: 0 0 10px var(--yellow-glow);
+}
+
+.about-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin-top: 10px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: var(--surface2);
+}
+
 /* ── Progress Overlay ────────────────────────────────────────────── */
 .progress-overlay {
   position: fixed;
