@@ -1,0 +1,17 @@
+# Rust / Cargo
+src-tauri/target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+
+# Tauri build output
+src-tauri/WixTools/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env

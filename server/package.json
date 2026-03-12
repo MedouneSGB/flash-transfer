@@ -1,0 +1,12 @@
+{
+  "name": "flash-transfer-relay",
+  "version": "1.0.0",
+  "description": "Flash⚡Transfer Relay Server",
+  "main": "relay-server.js",
+  "scripts": {
+    "start": "node relay-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

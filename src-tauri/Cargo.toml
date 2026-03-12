@@ -1,0 +1,46 @@
+[package]
+name = "flash-transfer"
+version = "1.0.0"
+description = "Flash⚡Transfer - Ultra-fast file transfer"
+authors = ["Flash Transfer"]
+edition = "2021"
+
+[lib]
+name = "flash_transfer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "flash-transfer"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+zip = "0.6"
+local-ip-address = "0.6"
+reqwest = { version = "0.11", features = ["json"] }
+rand = "0.8"
+log = "0.4"
+env_logger = "0.10"
+num_cpus = "1.16"
+dirs-next = "2.0"
+lazy_static = "1.4"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
