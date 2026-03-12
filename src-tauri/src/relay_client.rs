@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use rand::Rng;
 
 // Default relay server — can be overridden via env var FLASH_RELAY_URL
-const DEFAULT_RELAY: &str = "wss://flash-transfer-relay.onrender.com";
+const DEFAULT_RELAY: &str = "wss://flash-transfer-7vj7.onrender.com";
 
 fn relay_url() -> String {
     std::env::var("FLASH_RELAY_URL").unwrap_or_else(|_| DEFAULT_RELAY.to_string())
@@ -150,6 +150,11 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                         out_file = tokio::fs::OpenOptions::new()
                                             .create(true).write(true).truncate(true)
                                             .open(&path).await.ok();
+                                        // Notify UI to show receive progress overlay
+                                        let _ = app.emit("receive-start", crate::transfer::ReceiveStartEvent {
+                                            file_name: file_name.clone(),
+                                            total_bytes: file_size,
+                                        });
                                     }
                                 }
                                 Some(Ok(Message::Binary(data))) => {
