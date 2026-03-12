@@ -7,7 +7,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 const BASE_PORT: u16 = 45679;
-const CHUNK_SIZE: u64 = 64 * 1024 * 1024; // 64 MB
 const BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8 MB
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -321,14 +320,21 @@ async fn handle_incoming(
     // Send ACK
     stream.write_all(b"ACK").await.ok();
 
-    // Check if all chunks received, then assemble
-    let n = num_streams();
-    let chunks_expected = ((file_size + CHUNK_SIZE - 1) / CHUNK_SIZE).min(n as u64) as usize;
+    // Calculate expected chunks using the SAME formula as the sender:
+    // sender divides file into n_streams equal parts (skipping if offset >= file_size)
+    let n = num_streams() as u64;
+    let per_chunk = (file_size + n - 1) / n;
+    let chunks_expected = if per_chunk == 0 {
+        1
+    } else {
+        (0..n).filter(|&i| i * per_chunk < file_size).count()
+    };
 
-    // Try to assemble: check all parts present
-    let all_present = (0..chunks_expected).all(|i| {
-        save_dir.join(format!("{}.part{}", file_name, i)).exists()
-    });
+    // Check all parts are present, and final file doesn't exist yet (avoid double assembly)
+    let all_present = !final_path.exists()
+        && (0..chunks_expected).all(|i| {
+            save_dir.join(format!("{}.part{}", file_name, i)).exists()
+        });
 
     if all_present {
         assemble_file(&file_name, save_dir, file_size, chunks_expected, &final_path).await?;
