@@ -1,0 +1,92 @@
+name: Build & Release Flash Transfer
+
+on:
+  push:
+    tags:
+      - 'v*'        # déclenche sur v1.0.0, v1.2.3, etc.
+  workflow_dispatch: # permet de déclencher manuellement
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macOS-Intel
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS-Apple-Silicon
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            name: Linux
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust ───────────────────────────────────────────────────────────────
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # ── Node ───────────────────────────────────────────────────────────────
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node deps
+        run: npm install
+
+      # ── Linux system deps ──────────────────────────────────────────────────
+      - name: Linux system libraries
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      # ── Build ──────────────────────────────────────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Flash⚡Transfer ${{ github.ref_name }}'
+          releaseBody: |
+            ## 📥 Téléchargements
+
+            | Plateforme | Fichier |
+            |---|---|
+            | Windows | `.msi` ou `.exe` |
+            | macOS Intel | `.dmg` (x86_64) |
+            | macOS Apple Silicon | `.dmg` (aarch64) |
+            | Linux | `.AppImage` ou `.deb` |
+
+            ## ✨ Nouveautés
+            - Voir les commits pour le détail des changements
+
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}
