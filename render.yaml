@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: flash-transfer-relay
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node relay-server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
+    autoDeploy: true
