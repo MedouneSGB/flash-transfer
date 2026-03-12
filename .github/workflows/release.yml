@@ -53,6 +53,22 @@ jobs:
       - name: Install Node deps
         run: npm install
 
+      # ── Fix icons → force RGBA PNG (requis par Tauri) ──────────────────────
+      - name: Convert icons to RGBA
+        run: |
+          python3 -m pip install --quiet Pillow
+          python3 - <<'EOF'
+          import os
+          from PIL import Image
+          icons_dir = "src-tauri/icons"
+          for fname in os.listdir(icons_dir):
+              if fname.endswith(".png"):
+                  p = os.path.join(icons_dir, fname)
+                  img = Image.open(p).convert("RGBA")
+                  img.save(p, "PNG")
+                  print(f"  RGBA ok: {fname}")
+          EOF
+
       # ── Linux system deps ──────────────────────────────────────────────────
       - name: Linux system libraries
         if: matrix.os == 'ubuntu-22.04'
