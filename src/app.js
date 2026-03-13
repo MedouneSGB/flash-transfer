@@ -718,13 +718,17 @@ function renderFilesTable() {
       <td><span class="ft-sender">${escapeHtml(f.sender_ip)}</span></td>
       <td><span class="ft-date">${formatDate(f.received_at)}</span></td>
       <td class="ft-actions">
-        <button class="ft-btn" title="Ouvrir" data-action="open" data-path="${escapeAttr(f.path)}">📂</button>
+        <button class="ft-btn ft-open-file" title="Ouvrir le fichier" data-action="open-file" data-path="${escapeAttr(f.path)}">📄 Fichier</button>
+        <button class="ft-btn ft-open-folder" title="Ouvrir le dossier" data-action="open-folder" data-path="${escapeAttr(f.path)}">📂 Dossier</button>
         <button class="ft-btn ft-delete" title="Supprimer" data-action="delete" data-id="${escapeAttr(f.id)}" data-path="${escapeAttr(f.path)}">🗑</button>
       </td>
     </tr>`).join('');
 
-  document.querySelectorAll('[data-action="open"]').forEach(btn => {
+  document.querySelectorAll('[data-action="open-file"]').forEach(btn => {
     btn.addEventListener('click', () => invoke('open_file', { path: btn.dataset.path }).catch(e => toast(String(e), 'error')));
+  });
+  document.querySelectorAll('[data-action="open-folder"]').forEach(btn => {
+    btn.addEventListener('click', () => invoke('open_folder', { path: btn.dataset.path }).catch(e => toast(String(e), 'error')));
   });
   document.querySelectorAll('[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', async () => {

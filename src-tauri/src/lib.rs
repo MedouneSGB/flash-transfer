@@ -30,6 +30,7 @@ pub fn run() {
             transfer::get_received_files,
             transfer::delete_received_file,
             transfer::open_file,
+            transfer::open_folder,
             // LAN discovery
             lan_discovery::start_lan_discovery,
             lan_discovery::stop_lan_discovery,

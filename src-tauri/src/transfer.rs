@@ -77,11 +77,30 @@ pub async fn delete_received_file(id: String, path: String) -> Result<(), String
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    std::process::Command::new("explorer").arg(&path).spawn().ok();
+    { use std::os::windows::process::CommandExt;
+      std::process::Command::new("explorer").arg(&path).creation_flags(0x08000000).spawn().ok(); }
     #[cfg(target_os = "macos")]
     std::process::Command::new("open").arg(&path).spawn().ok();
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open").arg(&path).spawn().ok();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_folder(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    let folder = p.parent().unwrap_or(p);
+    #[cfg(target_os = "windows")]
+    { use std::os::windows::process::CommandExt;
+      // /select, met le fichier en surbrillance dans l'Explorateur
+      std::process::Command::new("explorer")
+          .args(["/select,", &path])
+          .creation_flags(0x08000000)
+          .spawn().ok(); }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").args(["-R", &path]).spawn().ok();
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(folder).spawn().ok();
     Ok(())
 }
 

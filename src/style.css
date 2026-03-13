@@ -579,14 +579,16 @@ body {
 .ft-sender { font-family: monospace; font-size: 11px; color: var(--text-dim); }
 .ft-date { font-size: 11px; color: var(--text-muted); }
 
-.ft-actions { display: flex; gap: 6px; }
+.ft-actions { display: flex; gap: 5px; flex-wrap: wrap; }
 .ft-btn {
   background: var(--surface3); border: 1px solid var(--border);
   color: var(--text-dim); border-radius: 5px; padding: 4px 8px;
-  font-size: 13px; cursor: pointer; transition: all 0.12s;
+  font-size: 11px; cursor: pointer; transition: all 0.12s; white-space: nowrap;
 }
-.ft-btn:hover        { background: var(--surface2); color: var(--text); }
-.ft-btn.ft-delete:hover { color: var(--red); border-color: var(--red); }
+.ft-btn:hover               { background: var(--surface2); color: var(--text); }
+.ft-btn.ft-open-file:hover  { color: var(--yellow); border-color: var(--yellow); }
+.ft-btn.ft-open-folder:hover{ color: #7ec8ff; border-color: #7ec8ff; }
+.ft-btn.ft-delete:hover     { color: var(--red); border-color: var(--red); }
 
 /* ── Overlay (common) ────────────────────────────────────────────── */
 .overlay {
