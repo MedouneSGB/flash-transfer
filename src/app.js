@@ -101,6 +101,26 @@ function toast(msg, type = 'info', ms = 4000) {
   }, ms);
 }
 
+// ── Navigation ─────────────────────────────────────────────────────────────
+function switchMainTab(tabId) {
+  document.querySelectorAll('.mtab').forEach(b =>
+    b.classList.toggle('active', b.dataset.mtab === tabId));
+  document.querySelectorAll('.main-panel').forEach(p =>
+    p.classList.toggle('active', p.id === 'mp-' + tabId));
+  if (tabId === 'files') loadReceivedFiles();
+}
+
+// ── Notifications natives (cliquables) ─────────────────────────────────────
+function notify(title, body, onClick) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  const n = new Notification(title, { body, icon: 'icons/icon.png' });
+  n.onclick = () => { window.focus(); onClick?.(); n.close(); };
+}
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
 // ── Sidebar mode tabs ──────────────────────────────────────────────────────
 document.querySelectorAll('.smode').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -495,9 +515,15 @@ async function initListeners() {
       id: 'in-' + Date.now(), type: 'text', direction: 'in',
       sender: sender_name, text, ts: timestamp || Date.now(),
     });
-    // Notification si pas sélectionné
+    // Notification si la fenêtre n'est pas sur ce peer
     if (state.selectedPeer?.ip !== sender_ip) {
       toast(`💬 ${sender_name}: ${text.slice(0, 60)}`, 'info', 5000);
+      const peer = state.peers.find(p => p.ip === sender_ip)
+                || { ip: sender_ip, name: sender_name };
+      notify(`💬 ${sender_name}`, text.slice(0, 100), () => {
+        switchMainTab('chat');
+        selectPeer(peer);
+      });
     }
   });
 
@@ -585,6 +611,10 @@ async function initListeners() {
       toast(`📥 ${file_name} reçu — ${formatSpeed(avg_speed_mbps)}`, 'success', 5000);
       // Badge sur l'onglet fichiers reçus
       updateFilesBadge();
+      // Notif native cliquable → onglet Fichiers reçus
+      notify('📥 Fichier reçu', `${file_name} — ${formatSpeed(avg_speed_mbps)}`, () => {
+        switchMainTab('files');
+      });
     }
   });
 
