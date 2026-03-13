@@ -16,7 +16,7 @@ const state = {
   receivedFiles:    [],
   localIp:          null,
   publicIp:         null,
-  senderName:       'Flash@...',
+  senderName:       'Flash',
   // Internet mode
   selectedFileCode: null,
   selectedFileIp:   null,
@@ -72,12 +72,12 @@ function savePseudo() {
   input.value = val;
   if (!val) {
     localStorage.removeItem('ft_pseudo');
-    state.senderName = `Flash@${state.localIp}`;
+    state.senderName = 'Flash';
     hint.textContent = 'Pseudonyme réinitialisé.';
   } else {
     localStorage.setItem('ft_pseudo', val);
-    state.senderName = `${val}@${state.localIp}`;
-    hint.textContent = `✓ Affiché comme : ${state.senderName}`;
+    state.senderName = val;
+    hint.textContent = `✓ Affiché comme : ${val}`;
   }
   document.getElementById('deviceName').textContent = state.senderName;
   // Redémarre la discovery avec le nouveau nom
@@ -839,9 +839,9 @@ async function init() {
   // IP locale + découverte LAN
   invoke('get_local_ip').then(ip => {
     state.localIp = ip;
-    // Pseudo sauvegardé ou par défaut Flash@IP
+    // Pseudo sauvegardé ou par défaut "Flash"
     const savedPseudo = localStorage.getItem('ft_pseudo');
-    state.senderName = savedPseudo ? `${savedPseudo}@${ip}` : `Flash@${ip}`;
+    state.senderName = savedPseudo || 'Flash';
     document.getElementById('deviceName').textContent = state.senderName;
     // Pré-remplir le champ pseudo
     if (savedPseudo) document.getElementById('pseudoInput').value = savedPseudo;
