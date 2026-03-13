@@ -79,7 +79,8 @@ function savePseudo() {
     state.senderName = val;
     hint.textContent = `✓ Affiché comme : ${val}`;
   }
-  document.getElementById('deviceName').textContent = state.senderName;
+  document.getElementById('deviceName').textContent = state.localIp
+    ? `${state.senderName} • ${state.localIp}` : state.senderName;
   // Redémarre la discovery avec le nouveau nom
   if (state.localIp) {
     invoke('start_lan_discovery', { name: state.senderName }).catch(console.warn);
@@ -480,8 +481,10 @@ async function initListeners() {
 
   // Peers LAN découverts
   await listen('peers-updated', e => {
-    // Exclure sa propre IP de la liste des appareils
-    state.peers = (e.payload || []).filter(p => p.ip !== state.localIp);
+    // Exclure sa propre entrée (par IP ou par nom — interfaces réseau multiples)
+    state.peers = (e.payload || []).filter(p =>
+      p.ip !== state.localIp && p.name !== state.senderName
+    );
     renderPeers();
   });
 
@@ -842,7 +845,8 @@ async function init() {
     // Pseudo sauvegardé ou par défaut "Flash"
     const savedPseudo = localStorage.getItem('ft_pseudo');
     state.senderName = savedPseudo || 'Flash';
-    document.getElementById('deviceName').textContent = state.senderName;
+    // Affiche "MSGB • 172.29.112.1" en haut à droite
+    document.getElementById('deviceName').textContent = `${state.senderName} • ${ip}`;
     // Pré-remplir le champ pseudo
     if (savedPseudo) document.getElementById('pseudoInput').value = savedPseudo;
     invoke('start_lan_discovery', { name: state.senderName }).catch(console.warn);
