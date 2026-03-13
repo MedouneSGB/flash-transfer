@@ -6,6 +6,9 @@ on:
       - 'v*'        # déclenche sur v1.0.0, v1.2.3, etc.
   workflow_dispatch: # permet de déclencher manuellement
 
+permissions:
+  contents: write   # nécessaire pour créer des releases GitHub
+
 jobs:
   build:
     strategy:
@@ -55,9 +58,12 @@ jobs:
 
       # ── Fix icons → force RGBA PNG (requis par Tauri) ──────────────────────
       - name: Convert icons to RGBA
+        shell: bash
         run: |
-          python3 -m pip install --quiet Pillow
-          python3 - <<'EOF'
+          # --break-system-packages nécessaire sur macOS avec Homebrew Python
+          python3 -m pip install --quiet Pillow --break-system-packages \
+            || python3 -m pip install --quiet Pillow
+          python3 - <<'PYEOF'
           import os
           from PIL import Image
           icons_dir = "src-tauri/icons"
@@ -67,7 +73,7 @@ jobs:
                   img = Image.open(p).convert("RGBA")
                   img.save(p, "PNG")
                   print(f"  RGBA ok: {fname}")
-          EOF
+          PYEOF
 
       # ── Linux system deps ──────────────────────────────────────────────────
       - name: Linux system libraries
