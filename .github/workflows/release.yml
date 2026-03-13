@@ -88,40 +88,11 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
-      # ── macOS : import du certificat de signature ──────────────────────────
-      - name: Import Apple certificate
-        if: matrix.os == 'macos-latest'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          echo "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" \
-            -k "$KEYCHAIN_PATH" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
       # ── Build ──────────────────────────────────────────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing & notarization (ignorés sur Windows/Linux)
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Flash⚡Transfer ${{ github.ref_name }}'
@@ -135,16 +106,23 @@ jobs:
             | macOS Apple Silicon | `.dmg` (aarch64) |
             | Linux | `.AppImage` ou `.deb` |
 
+            ## ⚠️ macOS — Avertissement Gatekeeper
+
+            L'app n'est pas signée avec un certificat Apple. À la première ouverture, macOS peut afficher "impossible de vérifier le développeur".
+
+            **Solution (2 options) :**
+
+            **Option 1 — Clic droit :**
+            > Clic droit sur le `.dmg` (ou sur `Flash Transfer.app`) → **Ouvrir** → confirmer dans la popup
+
+            **Option 2 — Terminal** (après avoir glissé l'app dans `/Applications`) :
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Flash\ Transfer.app
+            ```
+
             ## ✨ Nouveautés
             - Voir les commits pour le détail des changements
 
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
-
-      # ── macOS : nettoyage du keychain temporaire ───────────────────────────
-      - name: Clean up keychain
-        if: matrix.os == 'macos-latest' && always()
-        run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
-          security delete-keychain "$KEYCHAIN_PATH" || true
