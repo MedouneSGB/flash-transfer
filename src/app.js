@@ -480,7 +480,8 @@ async function initListeners() {
 
   // Peers LAN découverts
   await listen('peers-updated', e => {
-    state.peers = e.payload;
+    // Exclure sa propre IP de la liste des appareils
+    state.peers = (e.payload || []).filter(p => p.ip !== state.localIp);
     renderPeers();
   });
 
