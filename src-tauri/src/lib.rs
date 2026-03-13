@@ -1,6 +1,7 @@
 mod transfer;
 mod lan_discovery;
 mod relay_client;
+mod messaging;
 
 use tauri::Manager;
 use std::sync::Arc;
@@ -22,14 +23,25 @@ pub fn run() {
             receiver: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
+            // Transfer
             transfer::start_receiver,
             transfer::send_file,
             transfer::stop_receiver,
+            transfer::get_received_files,
+            transfer::delete_received_file,
+            transfer::open_file,
+            // LAN discovery
             lan_discovery::start_lan_discovery,
             lan_discovery::stop_lan_discovery,
+            // Internet relay
             relay_client::generate_relay_code,
             relay_client::join_relay_room,
             relay_client::disconnect_relay,
+            // Messaging (LAN chat + file requests)
+            messaging::send_chat_message,
+            messaging::send_file_request,
+            messaging::respond_to_file_request,
+            // Utilities
             get_local_ip,
             get_public_ip,
             get_file_size,
@@ -40,9 +52,13 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
             window.set_title("Flash⚡Transfer").unwrap();
 
-            // Attempt to open firewall ports silently (requires admin on Windows;
-            // if it fails, users see the manual instructions in the UI).
             try_configure_firewall();
+
+            // Démarre le canal de contrôle pour les messages et demandes de fichiers
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                messaging::start_control_listener(handle).await;
+            });
 
             Ok(())
         })
@@ -50,64 +66,64 @@ pub fn run() {
         .expect("error while running Flash⚡Transfer");
 }
 
-/// Tries to add Windows Firewall inbound rules for Flash Transfer ports.
-/// Runs silently — failure is non-fatal.
 fn try_configure_firewall() {
     #[cfg(target_os = "windows")]
     {
-        // Remove stale rules first (ignore errors)
+        // Nettoie les anciennes règles
         let _ = std::process::Command::new("netsh")
             .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-TCP"])
             .output();
         let _ = std::process::Command::new("netsh")
             .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-UDP"])
             .output();
+        let _ = std::process::Command::new("netsh")
+            .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-CTRL"])
+            .output();
 
-        // TCP port 45679 — file transfer
-        let tcp = std::process::Command::new("netsh")
+        // TCP 45679 — transfert de fichiers
+        let _ = std::process::Command::new("netsh")
             .args([
                 "advfirewall", "firewall", "add", "rule",
-                "name=FlashTransfer-TCP",
-                "dir=in", "action=allow",
+                "name=FlashTransfer-TCP", "dir=in", "action=allow",
                 "protocol=TCP", "localport=45679",
                 "profile=private,domain",
-                "description=Flash Transfer file receive port",
+                "description=Flash Transfer file port",
             ])
             .output();
 
-        // UDP port 45678 — LAN peer discovery
-        let udp = std::process::Command::new("netsh")
+        // TCP 45680 — canal de contrôle (messages + file requests)
+        let _ = std::process::Command::new("netsh")
             .args([
                 "advfirewall", "firewall", "add", "rule",
-                "name=FlashTransfer-UDP",
-                "dir=in", "action=allow",
+                "name=FlashTransfer-CTRL", "dir=in", "action=allow",
+                "protocol=TCP", "localport=45680",
+                "profile=private,domain",
+                "description=Flash Transfer control port",
+            ])
+            .output();
+
+        // UDP 45678 — découverte LAN
+        let _ = std::process::Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "add", "rule",
+                "name=FlashTransfer-UDP", "dir=in", "action=allow",
                 "protocol=UDP", "localport=45678",
                 "profile=private,domain",
                 "description=Flash Transfer LAN discovery",
             ])
             .output();
-
-        if let Ok(r) = &tcp {
-            log::info!("Firewall TCP rule: {}", String::from_utf8_lossy(&r.stdout).trim());
-        }
-        if let Ok(r) = &udp {
-            log::info!("Firewall UDP rule: {}", String::from_utf8_lossy(&r.stdout).trim());
-        }
     }
 }
 
-/// Tauri command — called from JS to (re-)apply firewall rules on demand.
 #[tauri::command]
 async fn configure_firewall() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
         try_configure_firewall();
-        return Ok("Règles pare-feu appliquées (port TCP 45679, UDP 45678).".to_string());
+        return Ok("Règles pare-feu appliquées (TCP 45679, TCP 45680, UDP 45678).".to_string());
     }
     #[cfg(not(target_os = "windows"))]
-    {
-        Ok("Aucune config pare-feu nécessaire sur ce système.".to_string())
-    }
+    Ok("Aucune config pare-feu nécessaire sur ce système.".to_string())
 }
 
 #[tauri::command]
@@ -133,17 +149,13 @@ fn get_file_size(path: String) -> u64 {
 
 #[tauri::command]
 async fn open_download_folder() -> Result<(), String> {
-    let home = dirs_next::download_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let folder = home.join("FlashTransfer");
+    let folder = transfer::get_save_dir();
     std::fs::create_dir_all(&folder).ok();
-
     #[cfg(target_os = "windows")]
     std::process::Command::new("explorer").arg(&folder).spawn().ok();
     #[cfg(target_os = "macos")]
     std::process::Command::new("open").arg(&folder).spawn().ok();
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open").arg(&folder).spawn().ok();
-
     Ok(())
 }

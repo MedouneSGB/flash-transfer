@@ -7,235 +7,232 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- ═══ HEADER ═══════════════════════════════════════════════════════ -->
+
+  <!-- ═══ HEADER ══════════════════════════════════════════════════════════ -->
   <header class="header">
     <div class="logo">
       <span class="bolt">⚡</span>
       <span class="app-name">Flash<span class="accent">Transfer</span></span>
     </div>
     <div class="header-right">
-      <span class="device-name" id="deviceName">Mon Appareil</span>
-      <div class="status-dot" id="statusDot" title="Récepteur actif"></div>
+      <span class="device-name" id="deviceName">Flash@…</span>
+      <div class="status-dot inactive" id="statusDot" title="Récepteur"></div>
     </div>
   </header>
 
-  <!-- ═══ TABS ═════════════════════════════════════════════════════════ -->
-  <nav class="tabs">
-    <button class="tab active" data-tab="lan">
-      <span class="tab-icon">📡</span> LAN
-    </button>
-    <button class="tab" data-tab="internet">
-      <span class="tab-icon">🌐</span> Internet
-    </button>
-    <button class="tab" data-tab="about">
-      <span class="tab-icon">ℹ</span>
-    </button>
-  </nav>
+  <!-- ═══ BODY ════════════════════════════════════════════════════════════ -->
+  <div class="app-body">
 
-  <!-- ═══ MAIN CONTENT ══════════════════════════════════════════════════ -->
-  <main class="content">
+    <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
 
-    <!-- ── LAN TAB ───────────────────────────────────────────────────── -->
-    <section class="tab-panel active" id="tab-lan">
-      <div class="panel-layout">
-
-        <!-- Peers list -->
-        <div class="peers-column">
-          <div class="section-label">
-            Appareils détectés
-            <span class="badge" id="peerCount">0</span>
-          </div>
-          <div class="peers-list" id="peersList">
-            <div class="no-peers">
-              <div class="scan-anim">📡</div>
-              <p>Scan en cours...</p>
-              <p class="hint">Les appareils avec Flash⚡Transfer apparaîtront ici</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Send panel -->
-        <div class="send-column">
-          <div class="drop-zone" id="dropZoneLan">
-            <div class="drop-icon">⚡</div>
-            <p class="drop-text">Glisse un fichier ici</p>
-            <p class="drop-hint">ou</p>
-            <button class="btn-yellow" id="selectFileLan">Choisir un fichier</button>
-            <input type="file" id="fileInputLan" style="display:none" multiple />
-          </div>
-          <div class="selected-file" id="selectedFileLan" style="display:none">
-            <span class="file-icon">📄</span>
-            <div class="file-info">
-              <span class="file-name" id="fileNameLan"></span>
-              <span class="file-size" id="fileSizeLan"></span>
-            </div>
-            <button class="btn-clear" id="clearFileLan">✕</button>
-          </div>
-          <div class="peer-target" id="peerTarget" style="display:none">
-            <span>Envoyer à :</span>
-            <strong id="targetName"></strong>
-            <button class="btn-yellow" id="btnSendLan">Envoyer ⚡</button>
-          </div>
-        </div>
-
+      <!-- Mode tabs -->
+      <div class="sidebar-modes">
+        <button class="smode active" data-mode="lan">📡 LAN</button>
+        <button class="smode" data-mode="internet">🌐 Net</button>
+        <button class="smode" data-mode="settings">⚙</button>
       </div>
-    </section>
 
-    <!-- ── INTERNET TAB ───────────────────────────────────────────────── -->
-    <section class="tab-panel" id="tab-internet">
-      <div class="internet-layout">
-
-        <!-- Mode Code Relay -->
-        <div class="internet-card">
-          <div class="card-header">
-            <span class="card-icon">🔑</span>
-            <div>
-              <h3>Code de partage</h3>
-              <p class="card-desc">Fonctionne partout (firewall, NAT)</p>
-            </div>
+      <!-- ── LAN mode ──────────────────────────────────────────────────── -->
+      <div class="sidebar-content active" id="sc-lan">
+        <div class="sc-label">
+          Appareils <span class="badge" id="peerCount">0</span>
+        </div>
+        <div class="peers-list" id="peersList">
+          <div class="no-peers">
+            <div class="scan-anim">📡</div>
+            <p>Scan en cours…</p>
+            <p class="hint">Les appareils avec Flash⚡Transfer apparaîtront ici</p>
           </div>
+        </div>
+      </div>
 
+      <!-- ── Internet mode ─────────────────────────────────────────────── -->
+      <div class="sidebar-content" id="sc-internet">
+
+        <!-- Code relay -->
+        <div class="inet-section">
+          <div class="inet-label">🔑 Code de partage</div>
           <div class="sub-tabs">
             <button class="sub-tab active" data-subtab="send-code">Envoyer</button>
             <button class="sub-tab" data-subtab="recv-code">Recevoir</button>
           </div>
 
-          <!-- Send via code -->
           <div class="sub-panel active" id="sub-send-code">
-            <div class="drop-zone small" id="dropZoneCode">
-              <div class="drop-icon small">⚡</div>
-              <p class="drop-text">Glisse un fichier ici</p>
-              <button class="btn-yellow" id="selectFileCode">Choisir</button>
-              <input type="file" id="fileInputCode" style="display:none" />
-            </div>
+            <button class="btn-yellow full" id="selectFileCode">📎 Choisir un fichier</button>
             <div class="selected-file" id="selectedFileCode" style="display:none">
-              <span class="file-icon">📄</span>
+              <span class="file-icon" id="fileIconCode">📄</span>
               <div class="file-info">
                 <span class="file-name" id="fileNameCode"></span>
                 <span class="file-size" id="fileSizeCode"></span>
               </div>
               <button class="btn-clear" id="clearFileCode">✕</button>
             </div>
-            <button class="btn-yellow full" id="btnGenerateCode" disabled>
-              Générer un code ⚡
-            </button>
+            <button class="btn-yellow full" id="btnGenerateCode" disabled>Générer un code ⚡</button>
             <div class="code-display" id="codeDisplay" style="display:none">
               <div class="code-value" id="codeValue">------</div>
-              <button class="btn-copy" id="btnCopyCode" title="Copier le code">📋 Copier</button>
-              <p class="code-hint" id="codeHint">En attente du destinataire...</p>
+              <button class="btn-copy" id="btnCopyCode">📋 Copier</button>
+              <p class="code-hint" id="codeHint">En attente du destinataire…</p>
             </div>
           </div>
 
-          <!-- Receive via code -->
           <div class="sub-panel" id="sub-recv-code">
-            <p class="recv-hint">Entre le code fourni par l'envoyeur :</p>
+            <p class="recv-hint">Code fourni par l'envoyeur :</p>
             <div class="code-input-row">
               <input type="text" class="code-input" id="codeInputField"
-                     placeholder="ex: f7x9k2" maxlength="8" autocomplete="off" />
-              <button class="btn-yellow" id="btnJoinCode">Rejoindre ⚡</button>
+                     placeholder="f7x9k2" maxlength="8" autocomplete="off" />
+              <button class="btn-yellow" id="btnJoinCode">⚡</button>
             </div>
           </div>
         </div>
 
-        <!-- Mode IP Directe -->
-        <div class="internet-card">
-          <div class="card-header">
-            <span class="card-icon">🚀</span>
-            <div>
-              <h3>IP directe</h3>
-              <p class="card-desc">Vitesse maximale (P2P direct)</p>
-            </div>
+        <!-- IP Direct -->
+        <div class="inet-section">
+          <div class="inet-label">🚀 IP directe</div>
+          <div class="ip-display">
+            <span class="ip-label">Mon IP :</span>
+            <span class="ip-value" id="myPublicIp">---</span>
+            <button class="btn-copy" id="btnCopyIp">📋</button>
           </div>
-
-          <div class="sub-tabs">
-            <button class="sub-tab active" data-subtab="send-ip">Envoyer</button>
-            <button class="sub-tab" data-subtab="recv-ip">Recevoir</button>
+          <button class="btn-yellow full" id="selectFileIp">📎 Choisir un fichier</button>
+          <div class="selected-file" id="selectedFileIp" style="display:none">
+            <span class="file-icon" id="fileIconIp">📄</span>
+            <div class="file-info">
+              <span class="file-name" id="fileNameIp"></span>
+              <span class="file-size" id="fileSizeIp"></span>
+            </div>
+            <button class="btn-clear" id="clearFileIp">✕</button>
           </div>
-
-          <!-- Send via IP -->
-          <div class="sub-panel active" id="sub-send-ip">
-            <div class="ip-display">
-              <span class="ip-label">Mon IP publique :</span>
-              <span class="ip-value" id="myPublicIp">---</span>
-              <button class="btn-copy" id="btnCopyIp" title="Copier l'IP">📋</button>
-            </div>
-            <p class="ip-port-info">Port : <strong>45679</strong></p>
-            <div class="drop-zone small" id="dropZoneIp">
-              <div class="drop-icon small">⚡</div>
-              <p class="drop-text">Glisse un fichier ici</p>
-              <button class="btn-yellow" id="selectFileIp">Choisir</button>
-              <input type="file" id="fileInputIp" style="display:none" />
-            </div>
-            <div class="selected-file" id="selectedFileIp" style="display:none">
-              <span class="file-icon">📄</span>
-              <div class="file-info">
-                <span class="file-name" id="fileNameIp"></span>
-                <span class="file-size" id="fileSizeIp"></span>
-              </div>
-              <button class="btn-clear" id="clearFileIp">✕</button>
-            </div>
-            <div class="ip-row">
-              <input type="text" class="ip-input" id="destIpInput"
-                     placeholder="IP destinataire (ex: 82.65.XX.XX)" />
-              <button class="btn-yellow" id="btnSendIp">Envoyer ⚡</button>
-            </div>
-            <p class="warn">⚠ Peut échouer si firewall/NAT strict</p>
+          <div class="ip-row">
+            <input type="text" class="ip-input" id="destIpInput" placeholder="82.65.XX.XX" />
+            <button class="btn-yellow" id="btnSendIp">⚡</button>
           </div>
-
-          <!-- Receive via IP -->
-          <div class="sub-panel" id="sub-recv-ip">
-            <div class="ip-display">
-              <span class="ip-label">Mon IP publique :</span>
-              <span class="ip-value" id="myPublicIp2">---</span>
-              <button class="btn-copy" id="btnCopyIp2" title="Copier">📋</button>
-            </div>
-            <p class="ip-port-info">Port : <strong>45679</strong></p>
-            <p class="recv-hint">Le récepteur écoute automatiquement.</p>
-            <p class="recv-hint">Communique ton IP + port à l'envoyeur.</p>
-          </div>
+          <p class="warn">⚠ Port 45679 requis ouvert</p>
         </div>
 
       </div>
-    </section>
 
-    <!-- ── ABOUT TAB ──────────────────────────────────────────────────── -->
-    <section class="tab-panel" id="tab-about">
-      <div class="about-content">
-        <div class="about-logo">⚡</div>
-        <h2>Flash<span class="accent">Transfer</span></h2>
-        <p class="about-version">v1.0.0</p>
-        <p class="about-desc">Transfert de fichiers ultra-rapide<br>LAN + Internet</p>
-        <div class="about-stats">
-          <div class="stat-item">
-            <span class="stat-val">TCP</span>
-            <span class="stat-lbl">Multi-stream</span>
+      <!-- ── Settings mode ─────────────────────────────────────────────── -->
+      <div class="sidebar-content" id="sc-settings">
+        <div class="about-content">
+          <div class="about-logo">⚡</div>
+          <h2>Flash<span class="accent">Transfer</span></h2>
+          <p class="about-version">v1.0.0</p>
+          <p class="about-desc">Transfert ultra-rapide<br>LAN + Internet</p>
+          <div class="about-stats">
+            <div class="stat-item"><span class="stat-val">TCP</span><span class="stat-lbl">Multi</span></div>
+            <div class="stat-item"><span class="stat-val">Rust</span><span class="stat-lbl">Backend</span></div>
+            <div class="stat-item"><span class="stat-val">P2P</span><span class="stat-lbl">Réseau</span></div>
           </div>
-          <div class="stat-item">
-            <span class="stat-val">Rust</span>
-            <span class="stat-lbl">Backend</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-val">P2P</span>
-            <span class="stat-lbl">Réseau</span>
+          <button class="btn-yellow" id="btnOpenFolder">📂 Dossier reçus</button>
+          <button class="btn-outline" id="btnFirewall">🛡 Config. pare-feu</button>
+          <div class="about-hint">
+            TCP <strong>45679</strong> (transfert)<br>
+            TCP <strong>45680</strong> (messages)<br>
+            UDP <strong>45678</strong> (LAN découverte)
           </div>
         </div>
-        <button class="btn-yellow" id="btnOpenFolder">📂 Ouvrir dossier reçu</button>
-        <button class="btn-outline" id="btnFirewall" title="Ouvre le port TCP 45679 dans le pare-feu Windows">🛡 Config. Pare-feu</button>
-        <p class="about-hint">Port TCP <strong>45679</strong> (transfert) · UDP <strong>45678</strong> (LAN)<br>
-          Si le transfert LAN échoue, clique sur Config. Pare-feu<br>(admin requis)</p>
       </div>
-    </section>
 
-  </main>
+    </aside>
 
-  <!-- ═══ PROGRESS OVERLAY ══════════════════════════════════════════════ -->
-  <div class="progress-overlay" id="progressOverlay" style="display:none">
-    <div class="progress-card">
+    <!-- ── MAIN AREA ─────────────────────────────────────────────────────── -->
+    <main class="main-area">
+
+      <!-- Main tabs -->
+      <div class="main-tabs">
+        <button class="mtab active" data-mtab="chat">💬 Chat</button>
+        <button class="mtab" data-mtab="files">
+          📁 Fichiers reçus
+          <span class="badge" id="filesBadge" style="display:none">0</span>
+        </button>
+      </div>
+
+      <!-- ── CHAT panel ──────────────────────────────────────────────────── -->
+      <div class="main-panel active" id="mp-chat">
+
+        <!-- État vide (aucun peer sélectionné) -->
+        <div class="chat-empty" id="chatEmpty">
+          <div class="chat-empty-icon">⚡</div>
+          <p>Sélectionne un appareil dans la liste</p>
+          <p class="chat-empty-hint">pour envoyer des fichiers ou des messages</p>
+        </div>
+
+        <!-- Zone de messages -->
+        <div class="messages" id="messages"></div>
+
+        <!-- Prévisualisation des fichiers à envoyer -->
+        <div class="attachments-bar" id="attachmentsBar" style="display:none">
+          <div class="attachments-label">📎 Fichiers à envoyer :</div>
+          <div class="attachments-list" id="attachmentsList"></div>
+          <button class="btn-clear-attach" id="btnClearAttach">✕ Tout effacer</button>
+        </div>
+
+        <!-- Barre de saisie -->
+        <div class="chat-input-bar" id="chatInputBar" style="display:none">
+          <button class="btn-attach" id="btnAttach" title="Joindre des fichiers">📎</button>
+          <input type="text" class="chat-text-input" id="chatTextInput"
+                 placeholder="Écrire un message… (Entrée pour envoyer)" />
+          <button class="btn-send" id="btnSend" title="Envoyer">➤</button>
+        </div>
+
+      </div>
+
+      <!-- ── FICHIERS REÇUS panel ────────────────────────────────────────── -->
+      <div class="main-panel" id="mp-files">
+        <div class="files-toolbar">
+          <button class="btn-outline small" id="btnRefreshFiles">↺ Actualiser</button>
+        </div>
+        <div class="files-empty" id="filesEmpty">
+          <div class="files-empty-icon">📭</div>
+          <p>Aucun fichier reçu pour l'instant</p>
+        </div>
+        <div class="files-table-wrap" id="filesTableWrap" style="display:none">
+          <table class="files-table">
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Type</th>
+                <th>Taille</th>
+                <th>Envoyeur</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="filesTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ═══ FILE REQUEST OVERLAY (demande entrante) ════════════════════════ -->
+  <div class="overlay" id="fileRequestOverlay" style="display:none">
+    <div class="overlay-card file-req-card">
+      <div class="fr-header">
+        <span class="fr-emoji">📎</span>
+        <div>
+          <div class="fr-title">Réception de fichier(s)</div>
+          <div class="fr-sender"><strong id="frSenderName">…</strong> souhaite envoyer :</div>
+        </div>
+      </div>
+      <div class="fr-files" id="frFilesList"></div>
+      <div class="fr-actions">
+        <button class="btn-accept" id="btnAcceptFiles">✓ Accepter</button>
+        <button class="btn-decline" id="btnDeclineFiles">✗ Refuser</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PROGRESS OVERLAY (internet / relay) ═══════════════════════════ -->
+  <div class="overlay" id="progressOverlay" style="display:none">
+    <div class="overlay-card progress-card">
       <div class="progress-header">
         <span class="progress-bolt">⚡</span>
         <div class="progress-info">
-          <span class="progress-filename" id="progFileName">fichier.zip</span>
-          <span class="progress-mode" id="progMode">Envoi en cours...</span>
+          <span class="progress-filename" id="progFileName">fichier…</span>
+          <span class="progress-mode" id="progMode">Envoi en cours…</span>
         </div>
       </div>
       <div class="progress-bar-wrap">
@@ -251,7 +248,7 @@
     </div>
   </div>
 
-  <!-- ═══ TOAST ═════════════════════════════════════════════════════════ -->
+  <!-- ═══ TOAST ══════════════════════════════════════════════════════════ -->
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="app.js"></script>

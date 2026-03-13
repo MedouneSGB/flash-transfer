@@ -8,6 +8,83 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+// ─── Received files metadata ─────────────────────────────────────────────────
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ReceivedFileMeta {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub ext: String,
+    pub sender_ip: String,
+    pub received_at: u64,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn meta_json_path() -> PathBuf {
+    get_save_dir().join(".received_files.json")
+}
+
+fn load_meta() -> Vec<ReceivedFileMeta> {
+    let p = meta_json_path();
+    if !p.exists() {
+        return Vec::new();
+    }
+    let data = std::fs::read_to_string(&p).unwrap_or_default();
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+fn save_meta(list: &[ReceivedFileMeta]) {
+    let p = meta_json_path();
+    if let Ok(json) = serde_json::to_string_pretty(list) {
+        std::fs::write(&p, json).ok();
+    }
+}
+
+fn append_meta(entry: ReceivedFileMeta) {
+    let mut list = load_meta();
+    list.push(entry);
+    save_meta(&list);
+}
+
+#[tauri::command]
+pub fn get_received_files() -> Vec<ReceivedFileMeta> {
+    let mut list = load_meta();
+    let before = list.len();
+    list.retain(|m| std::path::Path::new(&m.path).exists());
+    if list.len() != before {
+        save_meta(&list);
+    }
+    list
+}
+
+#[tauri::command]
+pub async fn delete_received_file(id: String, path: String) -> Result<(), String> {
+    tokio::fs::remove_file(&path).await.ok();
+    let mut list = load_meta();
+    list.retain(|m| m.id != id);
+    save_meta(&list);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_file(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer").arg(&path).spawn().ok();
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&path).spawn().ok();
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&path).spawn().ok();
+    Ok(())
+}
+
 /// Single port — the chunk index in the header identifies each stream.
 const BASE_PORT: u16 = 45679;
 const BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4 MB read buffer
@@ -272,8 +349,9 @@ pub async fn start_receiver(
                             log::info!("Incoming from {}", addr);
                             let save_dir = save_dir_clone.clone();
                             let app = app_clone.clone();
+                            let sender_ip = addr.ip().to_string();
                             tokio::spawn(async move {
-                                if let Err(e) = handle_incoming(stream, &save_dir, app).await {
+                                if let Err(e) = handle_incoming(stream, &save_dir, app, sender_ip).await {
                                     log::error!("Receive error: {}", e);
                                 }
                             });
@@ -303,6 +381,7 @@ async fn handle_incoming(
     mut stream: TcpStream,
     save_dir: &Path,
     app: AppHandle,
+    sender_ip: String,
 ) -> Result<(), String> {
     stream.set_nodelay(true).ok();
 
@@ -440,6 +519,22 @@ async fn handle_incoming(
 
         // Clean up tracker
         RECV_TRACKER.lock().unwrap().remove(&file_name);
+
+        // Persist metadata for "Fichiers reçus" tab
+        let ext = std::path::Path::new(&file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("?")
+            .to_uppercase();
+        append_meta(ReceivedFileMeta {
+            id: format!("{:x}", now_ms()),
+            name: file_name.clone(),
+            path: final_path.to_string_lossy().to_string(),
+            size: file_size,
+            ext,
+            sender_ip: sender_ip.clone(),
+            received_at: now_ms(),
+        });
 
         let avg_speed = if elapsed > 0.0 { total_done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
 
