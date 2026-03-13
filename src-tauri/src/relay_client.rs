@@ -154,6 +154,7 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                         let _ = app.emit("receive-start", crate::transfer::ReceiveStartEvent {
                                             file_name: file_name.clone(),
                                             total_bytes: file_size,
+                                            sender_ip: "relay".to_string(),
                                         });
                                     }
                                 }
