@@ -101,6 +101,95 @@ function toast(msg, type = 'info', ms = 4000) {
   }, ms);
 }
 
+// ── Supabase Auth ──────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://jmbnkvojjedejnibojiu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptYm5rdm9qamVkZWpuaWJvaml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MzM2NzMsImV4cCI6MjA4OTAwOTY3M30.cpHrH1BQx8OFksXSkzbwjb1rUKxozergeNpZ_D6nO7c';
+
+let supabaseClient = null;
+
+function initSupabase() {
+  if (!window.supabase) { console.warn('Supabase UMD not loaded'); return; }
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      flowType: 'pkce',
+      storage: window.localStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+async function signInWithGoogle() {
+  if (!supabaseClient) { toast('Supabase non initialisé', 'error'); return; }
+  invoke('start_oauth_server').catch(console.warn);
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: 'http://localhost:7432', skipBrowserRedirect: true },
+  });
+  if (error || !data?.url) {
+    toast('Erreur OAuth : ' + (error?.message || 'URL manquante'), 'error');
+    return;
+  }
+  await invoke('open_browser_url', { url: data.url });
+  toast('🌐 Connectez-vous dans votre navigateur…', 'info', 12000);
+}
+
+async function signOut() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  localStorage.removeItem('ft_pseudo');
+  state.senderName = 'Flash';
+  document.getElementById('deviceName').textContent = state.localIp
+    ? `Flash • ${state.localIp}` : 'Flash';
+  document.getElementById('pseudoInput').value = '';
+  updateAuthUI(null);
+  toast('Déconnecté', 'info', 2000);
+  if (state.localIp) invoke('start_lan_discovery', { name: 'Flash' }).catch(console.warn);
+}
+
+function applyGoogleUser(user) {
+  const name = user.user_metadata?.full_name
+    || user.user_metadata?.name
+    || user.email.split('@')[0];
+  localStorage.setItem('ft_pseudo', name);
+  state.senderName = name;
+  document.getElementById('deviceName').textContent = state.localIp
+    ? `${name} • ${state.localIp}` : name;
+  document.getElementById('pseudoInput').value = name;
+  if (state.localIp) invoke('start_lan_discovery', { name }).catch(console.warn);
+  updateAuthUI(user);
+  document.getElementById('welcomeOverlay').style.display = 'none';
+  toast(`✓ Connecté : ${name}`, 'success', 4000);
+}
+
+function updateAuthUI(user) {
+  const btnGoogle   = document.getElementById('btnGoogleAuth');
+  const accountInfo = document.getElementById('accountInfo');
+  if (!btnGoogle || !accountInfo) return;
+  if (user) {
+    btnGoogle.style.display = 'none';
+    accountInfo.style.display = 'flex';
+    document.getElementById('accountName').textContent  = user.user_metadata?.full_name || user.user_metadata?.name || '';
+    document.getElementById('accountEmail').textContent = user.email || '';
+    const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+    const avatarEl  = document.getElementById('accountAvatar');
+    if (avatarUrl) { avatarEl.src = avatarUrl; avatarEl.style.display = 'block'; }
+    else { avatarEl.style.display = 'none'; }
+  } else {
+    btnGoogle.style.display = 'flex';
+    accountInfo.style.display = 'none';
+  }
+}
+
+async function checkExistingSession() {
+  if (!supabaseClient) return;
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session?.user) applyGoogleUser(session.user);
+  } catch(e) { console.warn('Session check:', e); }
+}
+
 // ── Navigation ─────────────────────────────────────────────────────────────
 function switchMainTab(tabId) {
   document.querySelectorAll('.mtab').forEach(b =>
@@ -931,6 +1020,30 @@ async function init() {
 
   // Badge fichiers reçus
   updateFilesBadge();
+
+  // ── Supabase init + listeners OAuth ──────────────────────────────────────
+  initSupabase();
+  checkExistingSession();
+
+  // Réponse du navigateur après login Google (code reçu par le serveur Rust)
+  listen('oauth-code', async (e) => {
+    const code = e.payload;
+    if (!supabaseClient) return;
+    try {
+      const { data, error } = await supabaseClient.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      applyGoogleUser(data.session.user);
+    } catch(err) {
+      toast('Erreur auth : ' + (err.message || err), 'error', 6000);
+    }
+  });
+  listen('oauth-error', (e) => {
+    toast('Authentification annulée : ' + e.payload, 'error', 5000);
+  });
+
+  // Bouton Google dans les settings
+  document.getElementById('btnGoogleAuth')?.addEventListener('click', signInWithGoogle);
+  document.getElementById('btnSignOut')?.addEventListener('click', signOut);
 }
 
 // ── Welcome overlay (premier lancement) ───────────────────────────────────
@@ -940,6 +1053,12 @@ function initWelcome() {
 
   const overlay = document.getElementById('welcomeOverlay');
   overlay.style.display = 'flex';
+
+  // Bouton Google dans le welcome
+  document.getElementById('btnWelcomeGoogle')?.addEventListener('click', async () => {
+    await signInWithGoogle();
+    // L'overlay se ferme automatiquement dans applyGoogleUser()
+  });
 
   // Pare-feu
   document.getElementById('btnWelcomeFirewall').addEventListener('click', async () => {

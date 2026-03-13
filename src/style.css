@@ -711,3 +711,46 @@ body {
   text-align: center;
 }
 .welcome-start-btn { width: 100%; padding: 12px; font-size: 15px; font-weight: 700; }
+
+/* ── Google Auth ─────────────────────────────────────────────────── */
+.btn-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: #fff; color: #3c4043; border: 1px solid #dadce0;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: box-shadow 0.15s, background 0.15s;
+}
+.btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+.btn-google-welcome { padding: 13px 14px; font-size: 14px; }
+.google-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* ── Account section (settings) ─────────────────────────────────── */
+.account-section { display: flex; flex-direction: column; gap: 8px; }
+.account-info {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.account-avatar {
+  width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+  flex-shrink: 0;
+}
+.account-details {
+  display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+}
+.account-name  { font-size: 13px; font-weight: 700; color: var(--text); }
+.account-email { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn-signout {
+  font-size: 11px; padding: 4px 10px; flex-shrink: 0;
+}
+
+/* ── Welcome divider ─────────────────────────────────────────────── */
+.welcome-divider {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text-dim); font-size: 11px;
+}
+.welcome-divider::before,
+.welcome-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}

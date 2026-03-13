@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Flash⚡Transfer</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="supabase.umd.js"></script>
 </head>
 <body>
 
@@ -118,6 +119,24 @@
           <div class="about-logo">⚡</div>
           <h2>Flash<span class="accent">Transfer</span></h2>
           <p class="about-version">v1.1.0</p>
+
+          <!-- ── Compte Google ── -->
+          <div class="account-section" id="accountSection">
+            <!-- Non connecté -->
+            <button class="btn-google" id="btnGoogleAuth">
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" class="google-icon" />
+              Se connecter avec Google
+            </button>
+            <!-- Connecté -->
+            <div class="account-info" id="accountInfo" style="display:none">
+              <img class="account-avatar" id="accountAvatar" src="" alt="" style="display:none" />
+              <div class="account-details">
+                <span class="account-name" id="accountName"></span>
+                <span class="account-email" id="accountEmail"></span>
+              </div>
+              <button class="btn-outline btn-signout" id="btnSignOut">Déconnexion</button>
+            </div>
+          </div>
 
           <!-- ── Pseudonyme ── -->
           <div class="pseudo-section">
@@ -271,11 +290,19 @@
         <p class="welcome-sub">Configurez votre profil avant de commencer</p>
       </div>
 
+      <!-- Google (recommandé) -->
+      <button class="btn-google btn-google-welcome" id="btnWelcomeGoogle">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" class="google-icon" />
+        Se connecter avec Google
+      </button>
+
+      <div class="welcome-divider"><span>ou continuer sans compte</span></div>
+
       <div class="welcome-section">
         <label class="welcome-label">👤 Votre pseudonyme</label>
         <div class="pseudo-row">
           <input id="welcomePseudoInput" class="pseudo-input" type="text" maxlength="24"
-                 placeholder="ex: Alice, Bureau, MacBook…" autofocus />
+                 placeholder="ex: Alice, Bureau, MacBook…" />
         </div>
         <p class="welcome-hint">Visible par les autres appareils sur le réseau</p>
       </div>
