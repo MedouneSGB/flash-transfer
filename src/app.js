@@ -614,8 +614,13 @@ async function initListeners() {
 
     if (save_path) {
       toast(`📥 ${file_name} reçu — ${formatSpeed(avg_speed_mbps)}`, 'success', 5000);
-      // Badge sur l'onglet fichiers reçus
-      updateFilesBadge();
+      // Recharge la liste si l'onglet est déjà ouvert, sinon juste le badge
+      const filesTabActive = document.querySelector('.mtab[data-mtab="files"]')?.classList.contains('active');
+      if (filesTabActive) {
+        loadReceivedFiles();
+      } else {
+        updateFilesBadge();
+      }
       // Notif native cliquable → onglet Fichiers reçus
       notify('📥 Fichier reçu', `${file_name} — ${formatSpeed(avg_speed_mbps)}`, () => {
         switchMainTab('files');
