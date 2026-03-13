@@ -117,8 +117,19 @@
         <div class="about-content">
           <div class="about-logo">⚡</div>
           <h2>Flash<span class="accent">Transfer</span></h2>
-          <p class="about-version">v1.0.0</p>
-          <p class="about-desc">Transfert ultra-rapide<br>LAN + Internet</p>
+          <p class="about-version">v1.1.0</p>
+
+          <!-- ── Pseudonyme ── -->
+          <div class="pseudo-section">
+            <label class="pseudo-label">👤 Mon pseudonyme</label>
+            <div class="pseudo-row">
+              <input id="pseudoInput" class="pseudo-input" type="text" maxlength="24"
+                     placeholder="ex: Alice, Bureau, MacBook…" />
+              <button class="btn-yellow btn-pseudo-save" id="btnSavePseudo">✓</button>
+            </div>
+            <p class="pseudo-hint" id="pseudoHint"></p>
+          </div>
+
           <div class="about-stats">
             <div class="stat-item"><span class="stat-val">TCP</span><span class="stat-lbl">Multi</span></div>
             <div class="stat-item"><span class="stat-val">Rust</span><span class="stat-lbl">Backend</span></div>

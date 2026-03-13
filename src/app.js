@@ -65,6 +65,28 @@ function fileIcon(ext) {
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
+function savePseudo() {
+  const input = document.getElementById('pseudoInput');
+  const hint  = document.getElementById('pseudoHint');
+  const val   = input.value.trim().replace(/[^a-zA-Z0-9_\-\.À-ÿ ]/g, '').slice(0, 24);
+  input.value = val;
+  if (!val) {
+    localStorage.removeItem('ft_pseudo');
+    state.senderName = `Flash@${state.localIp}`;
+    hint.textContent = 'Pseudonyme réinitialisé.';
+  } else {
+    localStorage.setItem('ft_pseudo', val);
+    state.senderName = `${val}@${state.localIp}`;
+    hint.textContent = `✓ Affiché comme : ${state.senderName}`;
+  }
+  document.getElementById('deviceName').textContent = state.senderName;
+  // Redémarre la discovery avec le nouveau nom
+  if (state.localIp) {
+    invoke('start_lan_discovery', { name: state.senderName }).catch(console.warn);
+  }
+  setTimeout(() => { hint.textContent = ''; }, 3000);
+}
+
 function toast(msg, type = 'info', ms = 4000) {
   const c = document.getElementById('toastContainer');
   const el = document.createElement('div');
@@ -811,11 +833,21 @@ async function init() {
 
   // IP locale + découverte LAN
   invoke('get_local_ip').then(ip => {
-    state.localIp  = ip;
-    state.senderName = `Flash@${ip}`;
+    state.localIp = ip;
+    // Pseudo sauvegardé ou par défaut Flash@IP
+    const savedPseudo = localStorage.getItem('ft_pseudo');
+    state.senderName = savedPseudo ? `${savedPseudo}@${ip}` : `Flash@${ip}`;
     document.getElementById('deviceName').textContent = state.senderName;
+    // Pré-remplir le champ pseudo
+    if (savedPseudo) document.getElementById('pseudoInput').value = savedPseudo;
     invoke('start_lan_discovery', { name: state.senderName }).catch(console.warn);
   }).catch(console.warn);
+
+  // Sauvegarde pseudo
+  document.getElementById('btnSavePseudo').addEventListener('click', savePseudo);
+  document.getElementById('pseudoInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') savePseudo();
+  });
 
   // IP publique
   invoke('get_public_ip').then(ip => {

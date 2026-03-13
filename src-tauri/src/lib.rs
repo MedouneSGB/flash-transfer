@@ -69,15 +69,21 @@ pub fn run() {
 fn try_configure_firewall() {
     #[cfg(target_os = "windows")]
     {
-        // Nettoie les anciennes règles
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // Nettoie les anciennes règles (silencieux — pas de fenêtre console)
         let _ = std::process::Command::new("netsh")
             .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-TCP"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         let _ = std::process::Command::new("netsh")
             .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-UDP"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         let _ = std::process::Command::new("netsh")
             .args(["advfirewall", "firewall", "delete", "rule", "name=FlashTransfer-CTRL"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         // TCP 45679 — transfert de fichiers
@@ -89,6 +95,7 @@ fn try_configure_firewall() {
                 "profile=private,domain",
                 "description=Flash Transfer file port",
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         // TCP 45680 — canal de contrôle (messages + file requests)
@@ -100,6 +107,7 @@ fn try_configure_firewall() {
                 "profile=private,domain",
                 "description=Flash Transfer control port",
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         // UDP 45678 — découverte LAN
@@ -111,6 +119,7 @@ fn try_configure_firewall() {
                 "profile=private,domain",
                 "description=Flash Transfer LAN discovery",
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
 }
