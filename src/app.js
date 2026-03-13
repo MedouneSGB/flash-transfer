@@ -536,29 +536,34 @@ async function initListeners() {
 
   // Début de réception d'un fichier (LAN ou IP direct)
   await listen('receive-start', e => {
-    const { file_name, total_bytes } = e.payload;
+    const { file_name, total_bytes, sender_ip } = e.payload;
 
-    if (state.isInternetProgress) {
-      // Mode internet: utilise l'overlay
-      showProgress(file_name, `📥 Réception… (${formatBytes(total_bytes)})`, true);
-      return;
-    }
+    // Toujours utiliser sender_ip fourni par Rust (fiable dans tous les modes)
+    const ip = sender_ip || state.pendingRequest?.senderIp || '__unknown__';
 
-    // Mode LAN: cherche d'où vient le fichier
-    // On ne connaît pas l'IP exacte ici, on l'ajoute à la conv du peer sélectionné
-    // ou on crée une "conv inconnue"
-    const ip = state.pendingRequest?.senderIp || state.selectedPeer?.ip || '__unknown__';
     const progId = 'recv-' + Date.now() + '-' + file_name;
     state.progressBubbles[file_name] = { msgId: progId, direction: 'in', ip };
     addMsg(ip, {
       id: progId, type: 'progress', direction: 'in',
       fileName: file_name, totalBytes: total_bytes, progress: 0, speed: 0,
     });
-    // Ouvre la conversation si on est sur ce peer
+
+    // Si la fenêtre est sur ce peer → affiche la conversation
     if (state.selectedPeer?.ip === ip) {
       document.getElementById('chatEmpty').style.display = 'none';
       document.getElementById('messages').style.display = 'flex';
       document.getElementById('chatInputBar').style.display = 'flex';
+      renderConversation(ip);
+    }
+
+    // Notification si en arrière-plan ou sur un autre peer
+    if (state.selectedPeer?.ip !== ip) {
+      const peerName = state.peers.find(p => p.ip === ip)?.name || ip;
+      notify(`📥 Réception en cours`, `${file_name} de ${peerName}`, () => {
+        switchMainTab('chat');
+        const peer = state.peers.find(p => p.ip === ip) || { ip, name: peerName };
+        selectPeer(peer);
+      });
     }
   });
 
@@ -833,11 +838,34 @@ document.getElementById('btnSendIp').addEventListener('click', async () => {
   const ip = document.getElementById('destIpInput').value.trim();
   if (!state.selectedFileIp) { toast('Sélectionne un fichier', 'error'); return; }
   if (!ip) { toast("Entre l'IP du destinataire", 'error'); return; }
-  state.isInternetProgress = true;
-  showProgress(state.selectedFileIp.name, `Envoi direct à ${ip}…`);
+
+  const f = state.selectedFileIp;
+  const files = [{ name: f.name, size: f.size }];
+
+  // 1) Demande d'abord l'accord du destinataire (port 45680)
+  toast(`⏳ Demande envoyée à ${ip}…`, 'info', 4000);
+  let accepted;
   try {
-    await invoke('send_file', { ip, filePath: state.selectedFileIp.path });
-  } catch(e) { hideProgress(); state.isInternetProgress = false; toast(String(e), 'error'); }
+    accepted = await invoke('send_file_request', {
+      ip, files, senderName: state.senderName,
+    });
+  } catch(e) {
+    toast(`Connexion impossible à ${ip} — port 45680 fermé ou app absente.`, 'error', 8000);
+    return;
+  }
+
+  if (!accepted) { toast('❌ Transfert refusé.', 'error', 4000); return; }
+
+  // 2) Accepté → envoie le fichier (port 45679)
+  state.isInternetProgress = true;
+  showProgress(f.name, `Envoi direct à ${ip}…`);
+  try {
+    await invoke('send_file', { ip, filePath: f.path });
+  } catch(e) {
+    hideProgress();
+    state.isInternetProgress = false;
+    toast(String(e), 'error');
+  }
 });
 document.getElementById('btnCopyIp').addEventListener('click', () => {
   if (state.publicIp) navigator.clipboard.writeText(state.publicIp).then(() => toast('IP copiée !', 'info', 2000));

@@ -137,6 +137,7 @@ pub struct ProgressEvent {
 pub struct ReceiveStartEvent {
     pub file_name: String,
     pub total_bytes: u64,
+    pub sender_ip: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -434,6 +435,7 @@ async fn handle_incoming(
             let _ = app.emit("receive-start", ReceiveStartEvent {
                 file_name: file_name.clone(),
                 total_bytes: file_size,
+                sender_ip: sender_ip.clone(),
             });
             tracker.insert(file_name.clone(), RecvEntry {
                 bytes_done: Arc::new(AtomicU64::new(0)),
