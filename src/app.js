@@ -312,7 +312,7 @@ function buildReqSentBubble(m) {
     <div class="msg-content">
       <div class="bubble-file-req ${statusClass}">
         <span class="bfr-spinner">${icon}</span>
-        <div class="bfr-text"><strong>${escapeHtml(filesHtml)}</strong><br>${text}</div>
+        <div class="bfr-text"><strong>${filesHtml}</strong><br>${text}</div>
       </div>
       <div class="msg-time">${timeLabel(m.ts)}</div>
     </div>`;
