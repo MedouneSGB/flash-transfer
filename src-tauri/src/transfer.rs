@@ -88,8 +88,6 @@ pub async fn open_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    let folder = p.parent().unwrap_or(p);
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt;
       // /select, met le fichier en surbrillance dans l'Explorateur
@@ -100,7 +98,8 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     std::process::Command::new("open").args(["-R", &path]).spawn().ok();
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(folder).spawn().ok();
+    { let p = std::path::Path::new(&path);
+      std::process::Command::new("xdg-open").arg(p.parent().unwrap_or(p)).spawn().ok(); }
     Ok(())
 }
 
