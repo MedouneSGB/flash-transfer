@@ -30,7 +30,7 @@
       <div class="sidebar-modes">
         <button class="smode active" data-mode="lan">📡 LAN</button>
         <button class="smode" data-mode="internet">🌐 Net</button>
-        <button class="smode" data-mode="settings">⚙</button>
+        <button class="smode" data-mode="settings">⚙ Config</button>
       </div>
 
       <!-- ── LAN mode ──────────────────────────────────────────────────── -->
@@ -261,6 +261,39 @@
 
   <!-- ═══ TOAST ══════════════════════════════════════════════════════════ -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ═══ WELCOME OVERLAY (premier lancement) ════════════════════════════ -->
+  <div class="overlay" id="welcomeOverlay" style="display:none">
+    <div class="overlay-card welcome-card">
+      <div class="welcome-header">
+        <span class="welcome-bolt">⚡</span>
+        <h2>Bienvenue sur Flash<span class="accent">Transfer</span></h2>
+        <p class="welcome-sub">Configurez votre profil avant de commencer</p>
+      </div>
+
+      <div class="welcome-section">
+        <label class="welcome-label">👤 Votre pseudonyme</label>
+        <div class="pseudo-row">
+          <input id="welcomePseudoInput" class="pseudo-input" type="text" maxlength="24"
+                 placeholder="ex: Alice, Bureau, MacBook…" autofocus />
+        </div>
+        <p class="welcome-hint">Visible par les autres appareils sur le réseau</p>
+      </div>
+
+      <div class="welcome-section">
+        <label class="welcome-label">🛡 Pare-feu Windows</label>
+        <p class="welcome-hint">Autorise les ports nécessaires pour les transferts LAN</p>
+        <button class="btn-outline welcome-fw-btn" id="btnWelcomeFirewall">
+          🛡 Configurer le pare-feu
+        </button>
+        <p class="welcome-fw-status" id="welcomeFwStatus"></p>
+      </div>
+
+      <button class="btn-yellow welcome-start-btn" id="btnWelcomeStart">
+        Commencer →
+      </button>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

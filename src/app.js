@@ -933,4 +933,51 @@ async function init() {
   updateFilesBadge();
 }
 
-window.addEventListener('DOMContentLoaded', init);
+// ── Welcome overlay (premier lancement) ───────────────────────────────────
+function initWelcome() {
+  // Afficher seulement si aucun pseudo n'a été défini
+  if (localStorage.getItem('ft_pseudo')) return;
+
+  const overlay = document.getElementById('welcomeOverlay');
+  overlay.style.display = 'flex';
+
+  // Pare-feu
+  document.getElementById('btnWelcomeFirewall').addEventListener('click', async () => {
+    const btn = document.getElementById('btnWelcomeFirewall');
+    const status = document.getElementById('welcomeFwStatus');
+    btn.disabled = true;
+    btn.textContent = '⏳ Configuration…';
+    try {
+      await invoke('configure_firewall');
+      status.textContent = '✓ Pare-feu configuré avec succès';
+      btn.textContent = '✓ Configuré';
+    } catch(e) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'Erreur — relance en administrateur';
+      btn.disabled = false;
+      btn.textContent = '🛡 Réessayer';
+    }
+  });
+
+  // Bouton Commencer
+  document.getElementById('btnWelcomeStart').addEventListener('click', () => {
+    const val = document.getElementById('welcomePseudoInput').value.trim()
+      .replace(/[^a-zA-Z0-9_\-\.À-ÿ ]/g, '').slice(0, 24);
+    if (val) {
+      localStorage.setItem('ft_pseudo', val);
+      state.senderName = val;
+      document.getElementById('pseudoInput').value = val;
+      document.getElementById('deviceName').textContent = state.localIp
+        ? `${val} • ${state.localIp}` : val;
+      if (state.localIp) invoke('start_lan_discovery', { name: val }).catch(console.warn);
+    }
+    overlay.style.display = 'none';
+  });
+
+  // Entrée clavier dans le champ pseudo
+  document.getElementById('welcomePseudoInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnWelcomeStart').click();
+  });
+}
+
+window.addEventListener('DOMContentLoaded', () => { init(); initWelcome(); });
