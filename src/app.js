@@ -895,7 +895,7 @@ function generateQRCode(text) {
   const canvas = document.getElementById('qrCanvas');
   if (!canvas || typeof qrcode === 'undefined') return;
   try {
-    const qr = qrcode(0, 'L');
+    const qr = qrcode(1, 'L');
     qr.addData(text);
     qr.make();
     const size = qr.getModuleCount();
