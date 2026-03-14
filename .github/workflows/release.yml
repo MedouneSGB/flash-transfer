@@ -106,6 +106,20 @@ jobs:
             | macOS Apple Silicon | `.dmg` (aarch64) |
             | Linux | `.AppImage` ou `.deb` |
 
+            ## ⚠️ macOS — Avertissement Gatekeeper
+
+            L'app n'est pas signée avec un certificat Apple. À la première ouverture, macOS peut afficher "impossible de vérifier le développeur".
+
+            **Solution (2 options) :**
+
+            **Option 1 — Clic droit :**
+            > Clic droit sur le `.dmg` (ou sur `Flash Transfer.app`) → **Ouvrir** → confirmer dans la popup
+
+            **Option 2 — Terminal** (après avoir glissé l'app dans `/Applications`) :
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Flash\ Transfer.app
+            ```
+
             ## ✨ Nouveautés
             - Voir les commits pour le détail des changements
 
