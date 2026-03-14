@@ -8,6 +8,15 @@
 //   recv — show own QR/code, and/or scan sender's QR/code
 // ═══════════════════════════════════════════
 
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+  ],
+};
+
 const ACCEPTED_MIME = new Set([
   'text/plain',
   'application/pdf',
@@ -302,7 +311,7 @@ function initSend() {
   const myCode = genCode();
   document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
 
-  peer = new Peer(myCode, { debug: 0 });
+  peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
   peer.on('open', id => {
     document.getElementById('sendCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
@@ -316,9 +325,19 @@ function initSend() {
     conn = c;
     onSendConnected();
     c.on('close', () => {
-      if (!sendStarted) { peerReady = false; updateSendBtn(); toast('Connexion fermée.'); }
+      if (!sendStarted) {
+        peerReady = false; connectedOnce = false; conn = null;
+        updateSendBtn(); showBlock('stepConnect'); hide('btnSend');
+        toast('Connexion fermée.');
+      }
     });
-    c.on('error', e => toast('Erreur connexion : ' + e.message));
+    c.on('error', e => {
+      toast('Erreur connexion : ' + e.message);
+      if (!sendStarted) {
+        peerReady = false; connectedOnce = false; conn = null;
+        updateSendBtn(); showBlock('stepConnect'); hide('btnSend');
+      }
+    });
   });
 
   peer.on('disconnected', () => {
@@ -362,14 +381,15 @@ function connectToOther(rawCode) {
   });
   conn.on('close', () => {
     if (!sendStarted) {
-      peerReady = false;
+      peerReady = false; conn = null;
+      hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
       toast('Connexion fermée par le destinataire.');
-      hide('sendConnStatus');
     }
   });
   conn.on('error', e => {
     toast('Erreur : ' + e.message);
-    hide('sendConnStatus');
+    peerReady = false; conn = null;
+    hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
   });
 
   setTimeout(() => {
@@ -535,7 +555,7 @@ function initRecv() {
   document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
   setText('recvQRStatus', 'Initialisation…');
 
-  peer = new Peer(myCode, { debug: 0 });
+  peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
   peer.on('open', id => {
     setText('recvQRStatus', '⏳ En attente de l\'expéditeur…');
