@@ -1,13 +1,11 @@
 'use strict';
 
 // ═══════════════════════════════════════════
-//  Flash Transfer — Web Transfer v2 (PeerJS)
+//  Flash Transfer — Web Transfer (PeerJS)
 //
-//  4 modes:
-//   sendCode — sender shows own code/QR, receiver dials in
-//   sendScan — sender scans receiver's QR / enters their code
-//   recvCode — receiver enters sender's code
-//   recvQR   — receiver shows own QR, sender scans & sends
+//  2 modes:
+//   send — select files, then connect to receiver (scan/code)
+//   recv — show own QR/code, and/or scan sender's QR/code
 // ═══════════════════════════════════════════
 
 const ACCEPTED_MIME = new Set([
@@ -27,7 +25,7 @@ const CHUNK_SIZE   = 64 * 1024;
 // ── State ──────────────────────────────────
 let peer      = null;
 let conn      = null;
-let subMode   = null;  // 'sendCode' | 'sendScan' | 'recvCode' | 'recvQR'
+let mode      = null;  // 'send' | 'recv'
 
 // Send side
 let peerReady      = false;
@@ -41,7 +39,7 @@ let tSendStart     = 0;
 
 // Receive side
 let connectedOnce     = false;
-let recvFiles         = [];   // Array<{meta, chunks, bytes, blob}>
+let recvFiles         = [];
 let currentRecvIdx    = -1;
 let totalRecvExpected = 0;
 let totalRecvSize     = 0;
@@ -139,6 +137,7 @@ function destroyPeer() {
 function resetAll() {
   destroyPeer();
   stopQRScanner();
+  stopRecvQRScanner();
   selectedFiles = []; sendQueue = []; currentSendIdx = 0;
   totalSendBytes = 0; sentBytes = 0;
   recvFiles = []; currentRecvIdx = -1;
@@ -170,7 +169,7 @@ function generateQRCode(text, canvasId) {
 }
 
 // ═══════════════════════════════════════════
-//  QR CODE — scan (send-scan mode)
+//  QR CODE — scanner (send side)
 // ═══════════════════════════════════════════
 let qrScanStream = null;
 let qrScanAnim   = null;
@@ -206,7 +205,7 @@ function scanQRFrame(video, canvas) {
       stopQRScanner();
       document.getElementById('sendCodeInput').value = text;
       toast('QR scanné : ' + text, 'success');
-      connectToReceiver(text);
+      connectToOther(text);
       return;
     }
   }
@@ -220,105 +219,119 @@ function stopQRScanner() {
 }
 
 // ═══════════════════════════════════════════
-//  SEND — shared helpers
+//  QR CODE — scanner (recv side)
 // ═══════════════════════════════════════════
-function resetSendShared() {
-  hide('stepFiles'); hide('btnSend'); hide('sendProgress'); hide('sendDone');
+let recvQrScanStream = null;
+let recvQrScanAnim   = null;
+
+async function startRecvQRScanner() {
+  const video = document.getElementById('recvQrVideo');
+  try {
+    recvQrScanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    video.srcObject = recvQrScanStream;
+    showBlock('recvQrScannerWrap');
+    video.addEventListener('loadedmetadata', () => {
+      const sc = document.getElementById('recvQrScanCanvas');
+      sc.width  = video.videoWidth  || 640;
+      sc.height = video.videoHeight || 480;
+      scanRecvQRFrame(video, sc);
+    }, { once: true });
+  } catch (e) {
+    toast('Caméra non disponible : ' + e.message);
+  }
+}
+
+function scanRecvQRFrame(video, canvas) {
+  if (!recvQrScanStream) return;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  if (code && code.data) {
+    const text = code.data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (text.length === 6) {
+      stopRecvQRScanner();
+      document.getElementById('recvCodeInput').value = text;
+      toast('QR scanné : ' + text, 'success');
+      connectToOtherAsRecv(text);
+      return;
+    }
+  }
+  recvQrScanAnim = requestAnimationFrame(() => scanRecvQRFrame(video, canvas));
+}
+
+function stopRecvQRScanner() {
+  if (recvQrScanStream) { recvQrScanStream.getTracks().forEach(t => t.stop()); recvQrScanStream = null; }
+  if (recvQrScanAnim)   { cancelAnimationFrame(recvQrScanAnim); recvQrScanAnim = null; }
+  hide('recvQrScannerWrap');
+}
+
+// ═══════════════════════════════════════════
+//  SEND MODE
+// ═══════════════════════════════════════════
+function initSend() {
+  mode = 'send';
+  showScreen('screenSend');
+  resetAll();
+
+  // Reset UI
   hide('sendConnStatus');
+  hide('btnSend');
+  hide('sendProgress');
+  hide('sendDone');
+  hide('qrScannerWrap');
+  hideError('fileError');
+  hideError('connectError');
   const fl = document.getElementById('fileListEl');
   if (fl) fl.innerHTML = '';
-  hideError('fileError');
+  if (document.getElementById('sendCodeInput'))
+    document.getElementById('sendCodeInput').value = '';
   selectedFiles = []; sendQueue = []; sendStarted = false; peerReady = false;
   updateSendBtn();
-}
 
-function onSendConnected() {
-  peerReady = true;
-  hide('sendConnStatus');
-  showBlock('stepFiles');
-  showBlock('btnSend');
-  setText('stepFilesLabel',
-    subMode === 'sendCode'
-      ? 'Destinataire connecté — sélectionnez vos fichiers'
-      : '2 — Sélectionnez les fichiers à envoyer');
-  updateSendBtn();
-}
+  // Show own QR code (receiver may scan this)
+  const myCode = genCode();
+  document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
+  document.getElementById('qrCanvasSend').style.display = 'none';
 
-// ═══════════════════════════════════════════
-//  SEND MODE A — "Envoyer par code" (show MY code, receiver dials in)
-// ═══════════════════════════════════════════
-function initSendCode() {
-  subMode = 'sendCode';
-  showScreen('screenSend');
-  setText('sendTitle', 'Envoyer par code');
-  resetAll();
-  resetSendShared();
-
-  showBlock('stepSendCode');
-  hide('stepSendScan');
-
-  const code = genCode();
-  document.getElementById('sendCodeDisplay').innerHTML = `<span class="code-chars">${code}</span>`;
-  setText('sendStatus', 'Initialisation…');
-
-  peer = new Peer(code, { debug: 0 });
+  peer = new Peer(myCode, { debug: 0 });
 
   peer.on('open', id => {
-    setText('sendStatus', '⏳ En attente du destinataire…');
+    document.getElementById('sendCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
     generateQRCode(id, 'qrCanvasSend');
   });
 
+  // Receiver may connect to us
   peer.on('connection', c => {
     if (connectedOnce) { try { c.close(); } catch (_) {} return; }
     connectedOnce = true;
     conn = c;
-    c.on('open', () => onSendConnected());
+    onSendConnected();
     c.on('close', () => {
-      if (!sendStarted) { peerReady = false; setText('sendStatus', '❌ Connexion fermée.'); updateSendBtn(); }
+      if (!sendStarted) { peerReady = false; updateSendBtn(); toast('Connexion fermée.'); }
     });
     c.on('error', e => toast('Erreur connexion : ' + e.message));
   });
 
   peer.on('error', err => {
-    if (err.type === 'unavailable-id') { destroyPeer(); initSendCode(); }
-    else toast('Erreur PeerJS : ' + err.message);
-  });
-}
-
-// ═══════════════════════════════════════════
-//  SEND MODE B — "Envoyer par scan" (scan receiver's QR)
-// ═══════════════════════════════════════════
-function initSendScan() {
-  subMode = 'sendScan';
-  showScreen('screenSend');
-  setText('sendTitle', 'Envoyer par scan QR');
-  resetAll();
-  resetSendShared();
-
-  hide('stepSendCode');
-  showBlock('stepSendScan');
-
-  if (document.getElementById('sendCodeInput'))
-    document.getElementById('sendCodeInput').value = '';
-  hideError('connectError');
-
-  peer = new Peer({ debug: 0 });
-  peer.on('error', err => {
-    if (err.type === 'peer-unavailable') {
+    if (err.type === 'unavailable-id') { destroyPeer(); initSend(); }
+    else if (err.type === 'peer-unavailable') {
       toast('Destinataire introuvable. Vérifiez le code.');
-      showBlock('stepSendScan'); hide('sendConnStatus'); hideError('connectError');
+      hide('sendConnStatus'); hideError('connectError');
     } else {
       toast('Erreur PeerJS : ' + err.message);
     }
   });
 }
 
-function connectToReceiver(rawCode) {
+// Sender initiates connection to receiver
+function connectToOther(rawCode) {
   const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length !== 6) { showError('connectError', 'Code invalide (6 caractères attendus).'); return; }
   if (!peer) return;
 
-  hide('stepSendScan');
   showFlex('sendConnStatus');
   setText('sendConnText', 'Connexion en cours…');
   hideError('connectError');
@@ -334,25 +347,33 @@ function connectToReceiver(rawCode) {
     if (!sendStarted) {
       peerReady = false;
       toast('Connexion fermée par le destinataire.');
-      showBlock('stepSendScan'); hide('sendConnStatus');
+      hide('sendConnStatus');
     }
   });
   conn.on('error', e => {
     toast('Erreur : ' + e.message);
-    showBlock('stepSendScan'); hide('sendConnStatus');
+    hide('sendConnStatus');
   });
 
   setTimeout(() => {
     if (conn && !conn.open && !peerReady) {
       toast('Délai dépassé. Vérifiez le code.');
-      showBlock('stepSendScan'); hide('sendConnStatus');
+      hide('sendConnStatus');
     }
   }, 10000);
 }
 
-// ═══════════════════════════════════════════
-//  FILE SELECTION (multi — both send modes)
-// ═══════════════════════════════════════════
+function onSendConnected() {
+  peerReady = true;
+  hide('sendConnStatus');
+  hide('stepConnect');
+  hide('mySendQRWrap');
+  showBlock('btnSend');
+  updateSendBtn();
+  toast('Destinataire connecté !', 'success');
+}
+
+// ── File selection ──────────────────────────
 function handleFiles(files) {
   let hadError = false;
   for (const file of files) {
@@ -401,9 +422,7 @@ function updateSendBtn() {
     : `Envoyer ${n} fichiers ⚡`;
 }
 
-// ═══════════════════════════════════════════
-//  SEND LOGIC — multi-file queue (both send modes)
-// ═══════════════════════════════════════════
+// ── Send logic ──────────────────────────────
 function doSend() {
   if (!conn || selectedFiles.length === 0 || !peerReady || sendStarted) return;
   sendStarted = true;
@@ -473,20 +492,88 @@ function updateSendProgress(file) {
 }
 
 // ═══════════════════════════════════════════
-//  RECEIVE — shared helpers
+//  RECEIVE MODE
 // ═══════════════════════════════════════════
-function resetRecvShared() {
+function initRecv() {
+  mode = 'recv';
+  showScreen('screenRecv');
+  resetAll();
+
   hide('recvConnStatus'); hide('recvProgress'); hide('recvGallery');
   hideError('recvConnectError');
+  hide('recvQrScannerWrap');
+  if (document.getElementById('recvCodeInput'))
+    document.getElementById('recvCodeInput').value = '';
   recvFiles = []; currentRecvIdx = -1;
   totalRecvExpected = 0; totalRecvSize = 0; totalRecvBytes = 0;
   setText('recvProgPct', '0%');
   document.getElementById('recvProgFill').style.width = '0';
   document.getElementById('galleryList').innerHTML    = '';
+
+  // Show own QR + code (sender can scan this)
+  const myCode = genCode();
+  document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
+  document.getElementById('qrCanvas').style.display = 'none';
+  setText('recvQRStatus', 'Initialisation…');
+
+  peer = new Peer(myCode, { debug: 0 });
+
+  peer.on('open', id => {
+    setText('recvQRStatus', '⏳ En attente de l\'expéditeur…');
+    document.getElementById('recvCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
+    generateQRCode(id, 'qrCanvas');
+  });
+
+  // Sender may connect to us
+  peer.on('connection', c => {
+    if (connectedOnce) { try { c.close(); } catch (_) {} return; }
+    connectedOnce = true;
+    conn = c;
+    setupRecvConn(c);
+  });
+
+  peer.on('error', err => {
+    if (err.type === 'unavailable-id') { destroyPeer(); initRecv(); }
+    else if (err.type === 'peer-unavailable') {
+      toast('Expéditeur introuvable. Vérifiez le code.');
+      hide('recvConnStatus'); hideError('recvConnectError');
+    } else {
+      toast('Erreur : ' + err.message);
+    }
+  });
+}
+
+// Receiver initiates connection to sender
+function connectToOtherAsRecv(rawCode) {
+  const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 6) { showError('recvConnectError', 'Code invalide (6 caractères attendus).'); return; }
+  if (!peer) return;
+
+  hide('stepRecvConnect');
+  showFlex('recvConnStatus');
+  setText('recvConnIcon', '⏳');
+  setText('recvConnText', 'Connexion en cours…');
+  hideError('recvConnectError');
+
+  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
+
+  conn.on('open', () => setupRecvConn(conn));
+  conn.on('error', e => {
+    toast('Erreur : ' + e.message);
+    showBlock('stepRecvConnect'); hide('recvConnStatus');
+  });
+
+  setTimeout(() => {
+    if (conn && !conn.open && totalRecvBytes === 0) {
+      toast('Délai dépassé. Vérifiez le code.');
+      showBlock('stepRecvConnect'); hide('recvConnStatus');
+    }
+  }, 10000);
 }
 
 function setupRecvConn(c) {
-  hide('stepRecvQR'); hide('stepRecvCode');
+  hide('stepRecvQR');
+  hide('stepRecvConnect');
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⚡');
   setText('recvConnText', 'Connecté — en attente des fichiers…');
@@ -526,7 +613,6 @@ function handleRecvData(data) {
     }
 
   } else {
-    // Binary chunk
     if (currentRecvIdx < 0 || !recvFiles[currentRecvIdx]) return;
     const fi = recvFiles[currentRecvIdx];
     let buf;
@@ -555,99 +641,7 @@ function updateRecvProgress() {
 }
 
 // ═══════════════════════════════════════════
-//  RECEIVE MODE A — "Recevoir par QR" (show MY QR, sender scans)
-// ═══════════════════════════════════════════
-function initRecvQR() {
-  subMode = 'recvQR';
-  showScreen('screenRecv');
-  setText('recvTitle', 'Recevoir par QR code');
-  resetAll();
-  resetRecvShared();
-
-  showBlock('stepRecvQR');
-  hide('stepRecvCode');
-  document.getElementById('qrCanvas').style.display = 'none';
-  document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
-  setText('recvQRStatus', 'Initialisation…');
-
-  const code = genCode();
-  peer = new Peer(code, { debug: 0 });
-
-  peer.on('open', id => {
-    setText('recvQRStatus', '⏳ En attente de l\'expéditeur…');
-    document.getElementById('recvCodeDisplay').innerHTML = `<span class="code-chars">${code}</span>`;
-    generateQRCode(id, 'qrCanvas');
-  });
-
-  peer.on('connection', c => {
-    if (connectedOnce) { try { c.close(); } catch (_) {} return; }
-    connectedOnce = true;
-    conn = c;
-    setupRecvConn(c);
-  });
-
-  peer.on('error', err => {
-    if (err.type === 'unavailable-id') { destroyPeer(); initRecvQR(); }
-    else toast('Erreur : ' + err.message);
-  });
-}
-
-// ═══════════════════════════════════════════
-//  RECEIVE MODE B — "Recevoir par code" (enter sender's code)
-// ═══════════════════════════════════════════
-function initRecvCode() {
-  subMode = 'recvCode';
-  showScreen('screenRecv');
-  setText('recvTitle', 'Recevoir par code');
-  resetAll();
-  resetRecvShared();
-
-  hide('stepRecvQR');
-  showBlock('stepRecvCode');
-  if (document.getElementById('recvCodeInput'))
-    document.getElementById('recvCodeInput').value = '';
-  hideError('recvConnectError');
-
-  peer = new Peer({ debug: 0 });
-  peer.on('error', err => {
-    if (err.type === 'peer-unavailable') {
-      toast('Code introuvable. Vérifiez le code ou demandez à l\'expéditeur de recharger.');
-      showBlock('stepRecvCode'); hide('recvConnStatus'); hideError('recvConnectError');
-    } else {
-      toast('Erreur : ' + err.message);
-    }
-  });
-}
-
-function connectToSender(rawCode) {
-  const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (code.length !== 6) { showError('recvConnectError', 'Code invalide (6 caractères attendus).'); return; }
-  if (!peer) return;
-
-  hide('stepRecvCode');
-  showFlex('recvConnStatus');
-  setText('recvConnIcon', '⏳');
-  setText('recvConnText', 'Connexion en cours…');
-  hideError('recvConnectError');
-
-  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
-
-  conn.on('open', () => setupRecvConn(conn));
-  conn.on('error', e => {
-    toast('Erreur : ' + e.message);
-    showBlock('stepRecvCode'); hide('recvConnStatus');
-  });
-
-  setTimeout(() => {
-    if (conn && !conn.open && totalRecvBytes === 0) {
-      toast('Délai dépassé. Vérifiez le code.');
-      showBlock('stepRecvCode'); hide('recvConnStatus');
-    }
-  }, 10000);
-}
-
-// ═══════════════════════════════════════════
-//  FILE GALLERY (both receive modes)
+//  FILE GALLERY (receive)
 // ═══════════════════════════════════════════
 function showFileGallery() {
   const n = recvFiles.filter(Boolean).length;
@@ -745,26 +739,24 @@ function downloadBlob(blob, filename) {
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Mode selection ──
-  document.getElementById('btnSendCode').addEventListener('click', initSendCode);
-  document.getElementById('btnSendScan').addEventListener('click', initSendScan);
-  document.getElementById('btnRecvCode').addEventListener('click', initRecvCode);
-  document.getElementById('btnRecvQR').addEventListener('click',   initRecvQR);
+  document.getElementById('btnModeSend').addEventListener('click', initSend);
+  document.getElementById('btnModeRecv').addEventListener('click', initRecv);
 
   // ── Back buttons ──
   document.getElementById('btnSendBack').addEventListener('click', () => {
     stopQRScanner(); resetAll(); showScreen('screenMode');
   });
   document.getElementById('btnRecvBack').addEventListener('click', () => {
-    resetAll(); showScreen('screenMode');
+    stopRecvQRScanner(); resetAll(); showScreen('screenMode');
   });
 
-  // ── QR scanner (send-scan mode) ──
+  // ── Send: QR scanner ──
   document.getElementById('btnScanQR').addEventListener('click', startQRScanner);
   document.getElementById('btnStopScan').addEventListener('click', stopQRScanner);
 
-  // ── Connect to receiver (send-scan mode) ──
+  // ── Send: connect to receiver by code ──
   document.getElementById('btnConnect').addEventListener('click', () => {
-    connectToReceiver(document.getElementById('sendCodeInput').value.trim());
+    connectToOther(document.getElementById('sendCodeInput').value.trim());
   });
   document.getElementById('sendCodeInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnConnect').click();
@@ -773,9 +765,13 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
 
-  // ── Connect to sender (recv-code mode) ──
+  // ── Recv: QR scanner ──
+  document.getElementById('btnRecvScanQR').addEventListener('click', startRecvQRScanner);
+  document.getElementById('btnRecvStopScan').addEventListener('click', stopRecvQRScanner);
+
+  // ── Recv: connect to sender by code ──
   document.getElementById('btnRecvConnect').addEventListener('click', () => {
-    connectToSender(document.getElementById('recvCodeInput').value.trim());
+    connectToOtherAsRecv(document.getElementById('recvCodeInput').value.trim());
   });
   document.getElementById('recvCodeInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnRecvConnect').click();
@@ -784,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
 
-  // ── File input (multi) ──
+  // ── File input ──
   document.getElementById('fileInput').addEventListener('change', e => {
     if (e.target.files.length) handleFiles(Array.from(e.target.files));
     e.target.value = '';
@@ -803,11 +799,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Send button ──
   document.getElementById('btnSend').addEventListener('click', doSend);
 
-  // ── New transfer buttons ──
-  document.getElementById('btnNewTransfer').addEventListener('click', () => {
-    // Re-init same recv sub-mode
-    subMode === 'recvQR' ? initRecvQR() : initRecvCode();
-  });
+  // ── New transfer ──
+  document.getElementById('btnNewTransfer').addEventListener('click', initRecv);
   document.getElementById('btnNewSend').addEventListener('click', () => {
     resetAll(); showScreen('screenMode');
   });
