@@ -319,7 +319,8 @@ function initSend() {
     if (err.type === 'unavailable-id') { destroyPeer(); initSend(); }
     else if (err.type === 'peer-unavailable') {
       toast('Destinataire introuvable. Vérifiez le code.');
-      hide('sendConnStatus'); hideError('connectError');
+      hide('sendConnStatus');
+      hideError('connectError');
     } else {
       toast('Erreur PeerJS : ' + err.message);
     }
@@ -536,7 +537,9 @@ function initRecv() {
     if (err.type === 'unavailable-id') { destroyPeer(); initRecv(); }
     else if (err.type === 'peer-unavailable') {
       toast('Expéditeur introuvable. Vérifiez le code.');
-      hide('recvConnStatus'); hideError('recvConnectError');
+      hide('recvConnStatus');
+      showBlock('stepRecvConnect');
+      hideError('recvConnectError');
     } else {
       toast('Erreur : ' + err.message);
     }
