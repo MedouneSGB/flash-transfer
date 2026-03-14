@@ -207,6 +207,38 @@ body {
 .code-hint { font-size: 11px; color: var(--text-dim); }
 .recv-hint { font-size: 11px; color: var(--text-dim); }
 
+/* QR code display (sender) */
+.qr-canvas {
+  width: 140px; height: 140px;
+  border: 3px solid var(--yellow);
+  border-radius: 8px;
+  image-rendering: pixelated;
+  background: #fff;
+  display: block;
+  box-shadow: 0 0 16px var(--yellow-glow);
+}
+
+/* QR divider */
+.qr-divider {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-muted); font-size: 10px;
+}
+.qr-divider::before, .qr-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* QR scanner (receiver) */
+.qr-scanner-wrap {
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
+}
+#qrVideo {
+  width: 100%; border-radius: 8px;
+  border: 2px solid var(--yellow);
+  background: #000;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+}
+
 .code-input-row { display: flex; gap: 6px; }
 .code-input {
   flex: 1; background: var(--surface3); border: 1px solid var(--border);
