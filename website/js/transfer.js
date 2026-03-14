@@ -315,11 +315,16 @@ function initSend() {
     c.on('error', e => toast('Erreur connexion : ' + e.message));
   });
 
+  peer.on('disconnected', () => {
+    if (peer && !peer.destroyed) peer.reconnect();
+  });
+
   peer.on('error', err => {
     if (err.type === 'unavailable-id') { destroyPeer(); initSend(); }
     else if (err.type === 'peer-unavailable') {
       toast('Destinataire introuvable. Vérifiez le code.');
-      hide('sendConnStatus'); hideError('connectError');
+      hide('sendConnStatus');
+      hideError('connectError');
     } else {
       toast('Erreur PeerJS : ' + err.message);
     }
@@ -331,6 +336,12 @@ function connectToOther(rawCode) {
   const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length !== 6) { showError('connectError', 'Code invalide (6 caractères attendus).'); return; }
   if (!peer) return;
+
+  if (peer.disconnected) {
+    peer.reconnect();
+    setTimeout(() => connectToOther(rawCode), 800);
+    return;
+  }
 
   showFlex('sendConnStatus');
   setText('sendConnText', 'Connexion en cours…');
@@ -532,11 +543,17 @@ function initRecv() {
     setupRecvConn(c);
   });
 
+  peer.on('disconnected', () => {
+    if (peer && !peer.destroyed) peer.reconnect();
+  });
+
   peer.on('error', err => {
     if (err.type === 'unavailable-id') { destroyPeer(); initRecv(); }
     else if (err.type === 'peer-unavailable') {
       toast('Expéditeur introuvable. Vérifiez le code.');
-      hide('recvConnStatus'); hideError('recvConnectError');
+      hide('recvConnStatus');
+      showBlock('stepRecvConnect');
+      hideError('recvConnectError');
     } else {
       toast('Erreur : ' + err.message);
     }
@@ -548,6 +565,12 @@ function connectToOtherAsRecv(rawCode) {
   const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length !== 6) { showError('recvConnectError', 'Code invalide (6 caractères attendus).'); return; }
   if (!peer) return;
+
+  if (peer.disconnected) {
+    peer.reconnect();
+    setTimeout(() => connectToOtherAsRecv(rawCode), 800);
+    return;
+  }
 
   hide('stepRecvConnect');
   showFlex('recvConnStatus');
