@@ -101,6 +101,95 @@ function toast(msg, type = 'info', ms = 4000) {
   }, ms);
 }
 
+// ── Supabase Auth ──────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://jmbnkvojjedejnibojiu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptYm5rdm9qamVkZWpuaWJvaml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MzM2NzMsImV4cCI6MjA4OTAwOTY3M30.cpHrH1BQx8OFksXSkzbwjb1rUKxozergeNpZ_D6nO7c';
+
+let supabaseClient = null;
+
+function initSupabase() {
+  if (!window.supabase) { console.warn('Supabase UMD not loaded'); return; }
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      flowType: 'pkce',
+      storage: window.localStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+async function signInWithGoogle() {
+  if (!supabaseClient) { toast('Supabase non initialisé', 'error'); return; }
+  invoke('start_oauth_server').catch(console.warn);
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: 'http://localhost:7432', skipBrowserRedirect: true },
+  });
+  if (error || !data?.url) {
+    toast('Erreur OAuth : ' + (error?.message || 'URL manquante'), 'error');
+    return;
+  }
+  await invoke('open_browser_url', { url: data.url });
+  toast('🌐 Connectez-vous dans votre navigateur…', 'info', 12000);
+}
+
+async function signOut() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  localStorage.removeItem('ft_pseudo');
+  state.senderName = 'Flash';
+  document.getElementById('deviceName').textContent = state.localIp
+    ? `Flash • ${state.localIp}` : 'Flash';
+  document.getElementById('pseudoInput').value = '';
+  updateAuthUI(null);
+  toast('Déconnecté', 'info', 2000);
+  if (state.localIp) invoke('start_lan_discovery', { name: 'Flash' }).catch(console.warn);
+}
+
+function applyGoogleUser(user) {
+  const name = user.user_metadata?.full_name
+    || user.user_metadata?.name
+    || user.email.split('@')[0];
+  localStorage.setItem('ft_pseudo', name);
+  state.senderName = name;
+  document.getElementById('deviceName').textContent = state.localIp
+    ? `${name} • ${state.localIp}` : name;
+  document.getElementById('pseudoInput').value = name;
+  if (state.localIp) invoke('start_lan_discovery', { name }).catch(console.warn);
+  updateAuthUI(user);
+  document.getElementById('welcomeOverlay').style.display = 'none';
+  toast(`✓ Connecté : ${name}`, 'success', 4000);
+}
+
+function updateAuthUI(user) {
+  const btnGoogle   = document.getElementById('btnGoogleAuth');
+  const accountInfo = document.getElementById('accountInfo');
+  if (!btnGoogle || !accountInfo) return;
+  if (user) {
+    btnGoogle.style.display = 'none';
+    accountInfo.style.display = 'flex';
+    document.getElementById('accountName').textContent  = user.user_metadata?.full_name || user.user_metadata?.name || '';
+    document.getElementById('accountEmail').textContent = user.email || '';
+    const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+    const avatarEl  = document.getElementById('accountAvatar');
+    if (avatarUrl) { avatarEl.src = avatarUrl; avatarEl.style.display = 'block'; }
+    else { avatarEl.style.display = 'none'; }
+  } else {
+    btnGoogle.style.display = 'flex';
+    accountInfo.style.display = 'none';
+  }
+}
+
+async function checkExistingSession() {
+  if (!supabaseClient) return;
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session?.user) applyGoogleUser(session.user);
+  } catch(e) { console.warn('Session check:', e); }
+}
+
 // ── Navigation ─────────────────────────────────────────────────────────────
 function switchMainTab(tabId) {
   document.querySelectorAll('.mtab').forEach(b =>
@@ -536,29 +625,34 @@ async function initListeners() {
 
   // Début de réception d'un fichier (LAN ou IP direct)
   await listen('receive-start', e => {
-    const { file_name, total_bytes } = e.payload;
+    const { file_name, total_bytes, sender_ip } = e.payload;
 
-    if (state.isInternetProgress) {
-      // Mode internet: utilise l'overlay
-      showProgress(file_name, `📥 Réception… (${formatBytes(total_bytes)})`, true);
-      return;
-    }
+    // Toujours utiliser sender_ip fourni par Rust (fiable dans tous les modes)
+    const ip = sender_ip || state.pendingRequest?.senderIp || '__unknown__';
 
-    // Mode LAN: cherche d'où vient le fichier
-    // On ne connaît pas l'IP exacte ici, on l'ajoute à la conv du peer sélectionné
-    // ou on crée une "conv inconnue"
-    const ip = state.pendingRequest?.senderIp || state.selectedPeer?.ip || '__unknown__';
     const progId = 'recv-' + Date.now() + '-' + file_name;
     state.progressBubbles[file_name] = { msgId: progId, direction: 'in', ip };
     addMsg(ip, {
       id: progId, type: 'progress', direction: 'in',
       fileName: file_name, totalBytes: total_bytes, progress: 0, speed: 0,
     });
-    // Ouvre la conversation si on est sur ce peer
+
+    // Si la fenêtre est sur ce peer → affiche la conversation
     if (state.selectedPeer?.ip === ip) {
       document.getElementById('chatEmpty').style.display = 'none';
       document.getElementById('messages').style.display = 'flex';
       document.getElementById('chatInputBar').style.display = 'flex';
+      renderConversation(ip);
+    }
+
+    // Notification si en arrière-plan ou sur un autre peer
+    if (state.selectedPeer?.ip !== ip) {
+      const peerName = state.peers.find(p => p.ip === ip)?.name || ip;
+      notify(`📥 Réception en cours`, `${file_name} de ${peerName}`, () => {
+        switchMainTab('chat');
+        const peer = state.peers.find(p => p.ip === ip) || { ip, name: peerName };
+        selectPeer(peer);
+      });
     }
   });
 
@@ -609,8 +703,13 @@ async function initListeners() {
 
     if (save_path) {
       toast(`📥 ${file_name} reçu — ${formatSpeed(avg_speed_mbps)}`, 'success', 5000);
-      // Badge sur l'onglet fichiers reçus
-      updateFilesBadge();
+      // Recharge la liste si l'onglet est déjà ouvert, sinon juste le badge
+      const filesTabActive = document.querySelector('.mtab[data-mtab="files"]')?.classList.contains('active');
+      if (filesTabActive) {
+        loadReceivedFiles();
+      } else {
+        updateFilesBadge();
+      }
       // Notif native cliquable → onglet Fichiers reçus
       notify('📥 Fichier reçu', `${file_name} — ${formatSpeed(avg_speed_mbps)}`, () => {
         switchMainTab('files');
@@ -791,6 +890,85 @@ document.getElementById('clearFileCode').addEventListener('click', () => {
   document.getElementById('codeDisplay').style.display = 'none';
   document.getElementById('btnGenerateCode').disabled = true;
 });
+// ── QR Code (génération) ───────────────────────────────────────────────────
+function generateQRCode(text) {
+  const canvas = document.getElementById('qrCanvas');
+  if (!canvas || typeof qrcode === 'undefined') return;
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(text);
+    qr.make();
+    const size = qr.getModuleCount();
+    const cellSize = Math.max(2, Math.floor(140 / size));
+    canvas.width  = size * cellSize;
+    canvas.height = size * cellSize;
+    const ctx = canvas.getContext('2d');
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        ctx.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+        ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+      }
+    }
+  } catch(e) { console.warn('QR generation error:', e); }
+}
+
+// ── QR Code (scan caméra) ──────────────────────────────────────────────────
+let qrScanStream = null;
+let qrScanAnimFrame = null;
+
+async function startQRScanner() {
+  const wrap  = document.getElementById('qrScannerWrap');
+  const video = document.getElementById('qrVideo');
+  const scanCanvas = document.getElementById('qrScanCanvas');
+  try {
+    qrScanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    video.srcObject = qrScanStream;
+    wrap.style.display = 'flex';
+    video.addEventListener('loadedmetadata', () => {
+      scanCanvas.width  = video.videoWidth  || 640;
+      scanCanvas.height = video.videoHeight || 480;
+      scanQRFrame(video, scanCanvas);
+    }, { once: true });
+  } catch(e) {
+    toast('Caméra non disponible : ' + e.message, 'error');
+  }
+}
+
+function scanQRFrame(video, canvas) {
+  if (!qrScanStream) return;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'dontInvert',
+  });
+  if (code && code.data) {
+    const text = code.data.trim().toLowerCase();
+    if (text.length >= 4) {
+      stopQRScanner();
+      document.getElementById('codeInputField').value = text;
+      toast('QR scanné : ' + text, 'success', 3000);
+      document.getElementById('btnJoinCode').click();
+      return;
+    }
+  }
+  qrScanAnimFrame = requestAnimationFrame(() => scanQRFrame(video, canvas));
+}
+
+function stopQRScanner() {
+  if (qrScanStream) {
+    qrScanStream.getTracks().forEach(t => t.stop());
+    qrScanStream = null;
+  }
+  if (qrScanAnimFrame) {
+    cancelAnimationFrame(qrScanAnimFrame);
+    qrScanAnimFrame = null;
+  }
+  document.getElementById('qrScannerWrap').style.display = 'none';
+}
+
 document.getElementById('btnGenerateCode').addEventListener('click', async () => {
   if (!state.selectedFileCode) return;
   try {
@@ -798,12 +976,19 @@ document.getElementById('btnGenerateCode').addEventListener('click', async () =>
     document.getElementById('codeValue').textContent = code;
     document.getElementById('codeDisplay').style.display = 'flex';
     document.getElementById('codeHint').textContent = 'En attente du destinataire…';
+    generateQRCode(code);
     toast(`Code généré : ${code}`, 'info', 10000);
   } catch(e) { toast(String(e), 'error'); }
 });
 document.getElementById('btnCopyCode').addEventListener('click', () => {
   const code = document.getElementById('codeValue').textContent;
   navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'info', 2000));
+});
+document.getElementById('btnScanQR').addEventListener('click', () => {
+  startQRScanner();
+});
+document.getElementById('btnStopScan').addEventListener('click', () => {
+  stopQRScanner();
 });
 document.getElementById('btnJoinCode').addEventListener('click', async () => {
   const code = document.getElementById('codeInputField').value.trim().toLowerCase();
@@ -833,11 +1018,34 @@ document.getElementById('btnSendIp').addEventListener('click', async () => {
   const ip = document.getElementById('destIpInput').value.trim();
   if (!state.selectedFileIp) { toast('Sélectionne un fichier', 'error'); return; }
   if (!ip) { toast("Entre l'IP du destinataire", 'error'); return; }
-  state.isInternetProgress = true;
-  showProgress(state.selectedFileIp.name, `Envoi direct à ${ip}…`);
+
+  const f = state.selectedFileIp;
+  const files = [{ name: f.name, size: f.size }];
+
+  // 1) Demande d'abord l'accord du destinataire (port 45680)
+  toast(`⏳ Demande envoyée à ${ip}…`, 'info', 4000);
+  let accepted;
   try {
-    await invoke('send_file', { ip, filePath: state.selectedFileIp.path });
-  } catch(e) { hideProgress(); state.isInternetProgress = false; toast(String(e), 'error'); }
+    accepted = await invoke('send_file_request', {
+      ip, files, senderName: state.senderName,
+    });
+  } catch(e) {
+    toast(`Connexion impossible à ${ip} — port 45680 fermé ou app absente.`, 'error', 8000);
+    return;
+  }
+
+  if (!accepted) { toast('❌ Transfert refusé.', 'error', 4000); return; }
+
+  // 2) Accepté → envoie le fichier (port 45679)
+  state.isInternetProgress = true;
+  showProgress(f.name, `Envoi direct à ${ip}…`);
+  try {
+    await invoke('send_file', { ip, filePath: f.path });
+  } catch(e) {
+    hideProgress();
+    state.isInternetProgress = false;
+    toast(String(e), 'error');
+  }
 });
 document.getElementById('btnCopyIp').addEventListener('click', () => {
   if (state.publicIp) navigator.clipboard.writeText(state.publicIp).then(() => toast('IP copiée !', 'info', 2000));
@@ -898,6 +1106,83 @@ async function init() {
 
   // Badge fichiers reçus
   updateFilesBadge();
+
+  // ── Supabase init + listeners OAuth ──────────────────────────────────────
+  initSupabase();
+  checkExistingSession();
+
+  // Réponse du navigateur après login Google (code reçu par le serveur Rust)
+  listen('oauth-code', async (e) => {
+    const code = e.payload;
+    if (!supabaseClient) return;
+    try {
+      const { data, error } = await supabaseClient.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      applyGoogleUser(data.session.user);
+    } catch(err) {
+      toast('Erreur auth : ' + (err.message || err), 'error', 6000);
+    }
+  });
+  listen('oauth-error', (e) => {
+    toast('Authentification annulée : ' + e.payload, 'error', 5000);
+  });
+
+  // Bouton Google dans les settings
+  document.getElementById('btnGoogleAuth')?.addEventListener('click', signInWithGoogle);
+  document.getElementById('btnSignOut')?.addEventListener('click', signOut);
 }
 
-window.addEventListener('DOMContentLoaded', init);
+// ── Welcome overlay (premier lancement) ───────────────────────────────────
+function initWelcome() {
+  // Afficher seulement si aucun pseudo n'a été défini
+  if (localStorage.getItem('ft_pseudo')) return;
+
+  const overlay = document.getElementById('welcomeOverlay');
+  overlay.style.display = 'flex';
+
+  // Bouton Google dans le welcome
+  document.getElementById('btnWelcomeGoogle')?.addEventListener('click', async () => {
+    await signInWithGoogle();
+    // L'overlay se ferme automatiquement dans applyGoogleUser()
+  });
+
+  // Pare-feu
+  document.getElementById('btnWelcomeFirewall').addEventListener('click', async () => {
+    const btn = document.getElementById('btnWelcomeFirewall');
+    const status = document.getElementById('welcomeFwStatus');
+    btn.disabled = true;
+    btn.textContent = '⏳ Configuration…';
+    try {
+      await invoke('configure_firewall');
+      status.textContent = '✓ Pare-feu configuré avec succès';
+      btn.textContent = '✓ Configuré';
+    } catch(e) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'Erreur — relance en administrateur';
+      btn.disabled = false;
+      btn.textContent = '🛡 Réessayer';
+    }
+  });
+
+  // Bouton Commencer
+  document.getElementById('btnWelcomeStart').addEventListener('click', () => {
+    const val = document.getElementById('welcomePseudoInput').value.trim()
+      .replace(/[^a-zA-Z0-9_\-\.À-ÿ ]/g, '').slice(0, 24);
+    if (val) {
+      localStorage.setItem('ft_pseudo', val);
+      state.senderName = val;
+      document.getElementById('pseudoInput').value = val;
+      document.getElementById('deviceName').textContent = state.localIp
+        ? `${val} • ${state.localIp}` : val;
+      if (state.localIp) invoke('start_lan_discovery', { name: val }).catch(console.warn);
+    }
+    overlay.style.display = 'none';
+  });
+
+  // Entrée clavier dans le champ pseudo
+  document.getElementById('welcomePseudoInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnWelcomeStart').click();
+  });
+}
+
+window.addEventListener('DOMContentLoaded', () => { init(); initWelcome(); });

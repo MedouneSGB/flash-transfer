@@ -180,13 +180,14 @@ body {
 
 .sub-tabs {
   display: flex; background: var(--surface3);
-  border-radius: 5px; padding: 2px; gap: 2px;
+  border-radius: 5px; padding: 2px; gap: 2px; width: 100%;
 }
 .sub-tab {
-  flex: 1; background: none; border: none;
-  color: var(--text-dim); padding: 5px 8px;
-  font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 4px;
-  transition: all 0.12s;
+  flex: 1; min-width: 0; background: none; border: none;
+  color: var(--text-dim); padding: 6px 4px;
+  font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px;
+  transition: all 0.12s; white-space: nowrap; text-align: center;
+  overflow: hidden; text-overflow: ellipsis;
 }
 .sub-tab.active { background: var(--yellow); color: #000; }
 .sub-panel { display: none; flex-direction: column; gap: 7px; }
@@ -205,6 +206,38 @@ body {
 }
 .code-hint { font-size: 11px; color: var(--text-dim); }
 .recv-hint { font-size: 11px; color: var(--text-dim); }
+
+/* QR code display (sender) */
+.qr-canvas {
+  width: 140px; height: 140px;
+  border: 3px solid var(--yellow);
+  border-radius: 8px;
+  image-rendering: pixelated;
+  background: #fff;
+  display: block;
+  box-shadow: 0 0 16px var(--yellow-glow);
+}
+
+/* QR divider */
+.qr-divider {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-muted); font-size: 10px;
+}
+.qr-divider::before, .qr-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* QR scanner (receiver) */
+.qr-scanner-wrap {
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
+}
+#qrVideo {
+  width: 100%; border-radius: 8px;
+  border: 2px solid var(--yellow);
+  background: #000;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+}
 
 .code-input-row { display: flex; gap: 6px; }
 .code-input {
@@ -686,3 +719,70 @@ body {
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* ── Welcome overlay ─────────────────────────────────────────────── */
+.welcome-card {
+  display: flex; flex-direction: column; gap: 20px;
+  max-width: 420px; width: 100%;
+}
+.welcome-header { text-align: center; }
+.welcome-bolt { font-size: 40px; display: block; margin-bottom: 8px; }
+.welcome-header h2 { font-size: 22px; font-weight: 800; margin: 0 0 6px; }
+.welcome-sub { color: var(--text-dim); font-size: 13px; margin: 0; }
+
+.welcome-section {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px; display: flex;
+  flex-direction: column; gap: 8px;
+}
+.welcome-label { font-size: 13px; font-weight: 700; }
+.welcome-hint  { font-size: 11px; color: var(--text-dim); margin: 0; }
+.welcome-fw-btn { width: 100%; }
+.welcome-fw-status {
+  font-size: 11px; color: var(--green); margin: 0; min-height: 14px;
+  text-align: center;
+}
+.welcome-start-btn { width: 100%; padding: 12px; font-size: 15px; font-weight: 700; }
+
+/* ── Google Auth ─────────────────────────────────────────────────── */
+.btn-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: #fff; color: #3c4043; border: 1px solid #dadce0;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: box-shadow 0.15s, background 0.15s;
+}
+.btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+.btn-google-welcome { padding: 13px 14px; font-size: 14px; }
+.google-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* ── Account section (settings) ─────────────────────────────────── */
+.account-section { display: flex; flex-direction: column; gap: 8px; }
+.account-info {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.account-avatar {
+  width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+  flex-shrink: 0;
+}
+.account-details {
+  display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+}
+.account-name  { font-size: 13px; font-weight: 700; color: var(--text); }
+.account-email { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn-signout {
+  font-size: 11px; padding: 4px 10px; flex-shrink: 0;
+}
+
+/* ── Welcome divider ─────────────────────────────────────────────── */
+.welcome-divider {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text-dim); font-size: 11px;
+}
+.welcome-divider::before,
+.welcome-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}

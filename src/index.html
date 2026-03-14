@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Flash⚡Transfer</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="supabase.umd.js"></script>
+  <script src="qrcode-gen.js"></script>
+  <script src="jsQR.js"></script>
 </head>
 <body>
 
@@ -30,7 +33,7 @@
       <div class="sidebar-modes">
         <button class="smode active" data-mode="lan">📡 LAN</button>
         <button class="smode" data-mode="internet">🌐 Net</button>
-        <button class="smode" data-mode="settings">⚙</button>
+        <button class="smode" data-mode="settings">⚙ Config</button>
       </div>
 
       <!-- ── LAN mode ──────────────────────────────────────────────────── -->
@@ -72,6 +75,7 @@
             <div class="code-display" id="codeDisplay" style="display:none">
               <div class="code-value" id="codeValue">------</div>
               <button class="btn-copy" id="btnCopyCode">📋 Copier</button>
+              <canvas id="qrCanvas" class="qr-canvas"></canvas>
               <p class="code-hint" id="codeHint">En attente du destinataire…</p>
             </div>
           </div>
@@ -82,6 +86,13 @@
               <input type="text" class="code-input" id="codeInputField"
                      placeholder="f7x9k2" maxlength="8" autocomplete="off" />
               <button class="btn-yellow" id="btnJoinCode">⚡</button>
+            </div>
+            <div class="qr-divider"><span>ou</span></div>
+            <button class="btn-outline full" id="btnScanQR">📷 Scanner le QR code</button>
+            <div class="qr-scanner-wrap" id="qrScannerWrap" style="display:none">
+              <video id="qrVideo" autoplay playsinline muted></video>
+              <canvas id="qrScanCanvas" style="display:none"></canvas>
+              <button class="btn-cancel" id="btnStopScan">✕ Arrêter le scan</button>
             </div>
           </div>
         </div>
@@ -118,6 +129,24 @@
           <div class="about-logo">⚡</div>
           <h2>Flash<span class="accent">Transfer</span></h2>
           <p class="about-version">v1.1.0</p>
+
+          <!-- ── Compte Google ── -->
+          <div class="account-section" id="accountSection">
+            <!-- Non connecté -->
+            <button class="btn-google" id="btnGoogleAuth">
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" class="google-icon" />
+              Se connecter avec Google
+            </button>
+            <!-- Connecté -->
+            <div class="account-info" id="accountInfo" style="display:none">
+              <img class="account-avatar" id="accountAvatar" src="" alt="" style="display:none" />
+              <div class="account-details">
+                <span class="account-name" id="accountName"></span>
+                <span class="account-email" id="accountEmail"></span>
+              </div>
+              <button class="btn-outline btn-signout" id="btnSignOut">Déconnexion</button>
+            </div>
+          </div>
 
           <!-- ── Pseudonyme ── -->
           <div class="pseudo-section">
@@ -261,6 +290,47 @@
 
   <!-- ═══ TOAST ══════════════════════════════════════════════════════════ -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ═══ WELCOME OVERLAY (premier lancement) ════════════════════════════ -->
+  <div class="overlay" id="welcomeOverlay" style="display:none">
+    <div class="overlay-card welcome-card">
+      <div class="welcome-header">
+        <span class="welcome-bolt">⚡</span>
+        <h2>Bienvenue sur Flash<span class="accent">Transfer</span></h2>
+        <p class="welcome-sub">Configurez votre profil avant de commencer</p>
+      </div>
+
+      <!-- Google (recommandé) -->
+      <button class="btn-google btn-google-welcome" id="btnWelcomeGoogle">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" class="google-icon" />
+        Se connecter avec Google
+      </button>
+
+      <div class="welcome-divider"><span>ou continuer sans compte</span></div>
+
+      <div class="welcome-section">
+        <label class="welcome-label">👤 Votre pseudonyme</label>
+        <div class="pseudo-row">
+          <input id="welcomePseudoInput" class="pseudo-input" type="text" maxlength="24"
+                 placeholder="ex: Alice, Bureau, MacBook…" />
+        </div>
+        <p class="welcome-hint">Visible par les autres appareils sur le réseau</p>
+      </div>
+
+      <div class="welcome-section">
+        <label class="welcome-label">🛡 Pare-feu Windows</label>
+        <p class="welcome-hint">Autorise les ports nécessaires pour les transferts LAN</p>
+        <button class="btn-outline welcome-fw-btn" id="btnWelcomeFirewall">
+          🛡 Configurer le pare-feu
+        </button>
+        <p class="welcome-fw-status" id="welcomeFwStatus"></p>
+      </div>
+
+      <button class="btn-yellow welcome-start-btn" id="btnWelcomeStart">
+        Commencer →
+      </button>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

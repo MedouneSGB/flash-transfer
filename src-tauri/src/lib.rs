@@ -2,6 +2,7 @@ mod transfer;
 mod lan_discovery;
 mod relay_client;
 mod messaging;
+mod oauth_server;
 
 use tauri::Manager;
 use std::sync::Arc;
@@ -42,6 +43,9 @@ pub fn run() {
             messaging::send_chat_message,
             messaging::send_file_request,
             messaging::respond_to_file_request,
+            // OAuth (Supabase / Google)
+            oauth_server::start_oauth_server,
+            oauth_server::open_browser_url,
             // Utilities
             get_local_ip,
             get_public_ip,
