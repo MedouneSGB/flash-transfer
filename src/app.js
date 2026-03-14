@@ -890,6 +890,85 @@ document.getElementById('clearFileCode').addEventListener('click', () => {
   document.getElementById('codeDisplay').style.display = 'none';
   document.getElementById('btnGenerateCode').disabled = true;
 });
+// ── QR Code (génération) ───────────────────────────────────────────────────
+function generateQRCode(text) {
+  const canvas = document.getElementById('qrCanvas');
+  if (!canvas || typeof qrcode === 'undefined') return;
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(text);
+    qr.make();
+    const size = qr.getModuleCount();
+    const cellSize = Math.max(2, Math.floor(140 / size));
+    canvas.width  = size * cellSize;
+    canvas.height = size * cellSize;
+    const ctx = canvas.getContext('2d');
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        ctx.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+        ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+      }
+    }
+  } catch(e) { console.warn('QR generation error:', e); }
+}
+
+// ── QR Code (scan caméra) ──────────────────────────────────────────────────
+let qrScanStream = null;
+let qrScanAnimFrame = null;
+
+async function startQRScanner() {
+  const wrap  = document.getElementById('qrScannerWrap');
+  const video = document.getElementById('qrVideo');
+  const scanCanvas = document.getElementById('qrScanCanvas');
+  try {
+    qrScanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    video.srcObject = qrScanStream;
+    wrap.style.display = 'flex';
+    video.addEventListener('loadedmetadata', () => {
+      scanCanvas.width  = video.videoWidth  || 640;
+      scanCanvas.height = video.videoHeight || 480;
+      scanQRFrame(video, scanCanvas);
+    }, { once: true });
+  } catch(e) {
+    toast('Caméra non disponible : ' + e.message, 'error');
+  }
+}
+
+function scanQRFrame(video, canvas) {
+  if (!qrScanStream) return;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'dontInvert',
+  });
+  if (code && code.data) {
+    const text = code.data.trim().toLowerCase();
+    if (text.length >= 4) {
+      stopQRScanner();
+      document.getElementById('codeInputField').value = text;
+      toast('QR scanné : ' + text, 'success', 3000);
+      document.getElementById('btnJoinCode').click();
+      return;
+    }
+  }
+  qrScanAnimFrame = requestAnimationFrame(() => scanQRFrame(video, canvas));
+}
+
+function stopQRScanner() {
+  if (qrScanStream) {
+    qrScanStream.getTracks().forEach(t => t.stop());
+    qrScanStream = null;
+  }
+  if (qrScanAnimFrame) {
+    cancelAnimationFrame(qrScanAnimFrame);
+    qrScanAnimFrame = null;
+  }
+  document.getElementById('qrScannerWrap').style.display = 'none';
+}
+
 document.getElementById('btnGenerateCode').addEventListener('click', async () => {
   if (!state.selectedFileCode) return;
   try {
@@ -897,12 +976,19 @@ document.getElementById('btnGenerateCode').addEventListener('click', async () =>
     document.getElementById('codeValue').textContent = code;
     document.getElementById('codeDisplay').style.display = 'flex';
     document.getElementById('codeHint').textContent = 'En attente du destinataire…';
+    generateQRCode(code);
     toast(`Code généré : ${code}`, 'info', 10000);
   } catch(e) { toast(String(e), 'error'); }
 });
 document.getElementById('btnCopyCode').addEventListener('click', () => {
   const code = document.getElementById('codeValue').textContent;
   navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'info', 2000));
+});
+document.getElementById('btnScanQR').addEventListener('click', () => {
+  startQRScanner();
+});
+document.getElementById('btnStopScan').addEventListener('click', () => {
+  stopQRScanner();
 });
 document.getElementById('btnJoinCode').addEventListener('click', async () => {
   const code = document.getElementById('codeInputField').value.trim().toLowerCase();

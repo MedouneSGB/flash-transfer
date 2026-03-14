@@ -6,6 +6,8 @@
   <title>Flash⚡Transfer</title>
   <link rel="stylesheet" href="style.css" />
   <script src="supabase.umd.js"></script>
+  <script src="qrcode-gen.js"></script>
+  <script src="jsQR.js"></script>
 </head>
 <body>
 
@@ -73,6 +75,7 @@
             <div class="code-display" id="codeDisplay" style="display:none">
               <div class="code-value" id="codeValue">------</div>
               <button class="btn-copy" id="btnCopyCode">📋 Copier</button>
+              <canvas id="qrCanvas" class="qr-canvas"></canvas>
               <p class="code-hint" id="codeHint">En attente du destinataire…</p>
             </div>
           </div>
@@ -83,6 +86,13 @@
               <input type="text" class="code-input" id="codeInputField"
                      placeholder="f7x9k2" maxlength="8" autocomplete="off" />
               <button class="btn-yellow" id="btnJoinCode">⚡</button>
+            </div>
+            <div class="qr-divider"><span>ou</span></div>
+            <button class="btn-outline full" id="btnScanQR">📷 Scanner le QR code</button>
+            <div class="qr-scanner-wrap" id="qrScannerWrap" style="display:none">
+              <video id="qrVideo" autoplay playsinline muted></video>
+              <canvas id="qrScanCanvas" style="display:none"></canvas>
+              <button class="btn-cancel" id="btnStopScan">✕ Arrêter le scan</button>
             </div>
           </div>
         </div>
