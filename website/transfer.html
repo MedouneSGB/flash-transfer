@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flash Transfer — Transfert Web</title>
+  <meta name="description" content="Envoyez et recevez des fichiers directement dans votre navigateur. Gratuit, sans compte.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- PeerJS for WebRTC P2P -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body class="t-body">
+
+<!-- ── Nav ── -->
+<nav class="navbar">
+  <div class="nav-container">
+    <a href="index.html" class="nav-brand">
+      <span class="bolt">⚡</span>
+      <span>Flash Transfer</span>
+    </a>
+    <a href="index.html" class="nav-back-link">← Retour au site</a>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<main class="t-main">
+
+  <!-- ════ MODE SELECTION ════ -->
+  <div id="screenMode" class="t-screen active">
+    <div class="t-header">
+      <h1>Transfert Web</h1>
+      <p>Envoyez ou recevez un fichier directement dans votre navigateur</p>
+      <div class="type-info">
+        <span class="type-info-label">Formats acceptés :</span>
+        <span class="type-chip">PDF</span>
+        <span class="type-chip">Word</span>
+        <span class="type-chip">Excel</span>
+        <span class="type-chip">PNG</span>
+        <span class="type-chip">JPG</span>
+        <span class="type-chip">TXT</span>
+        <span class="type-limit">· max 25 Mo</span>
+      </div>
+    </div>
+
+    <div class="mode-cards">
+      <button class="mode-card" id="btnSendMode">
+        <div class="mode-card-icon">📤</div>
+        <h2>Envoyer</h2>
+        <p>Un code est généré — partagez-le au destinataire</p>
+      </button>
+      <div class="mode-or">ou</div>
+      <button class="mode-card" id="btnRecvMode">
+        <div class="mode-card-icon">📥</div>
+        <h2>Recevoir</h2>
+        <p>Entrez le code fourni par l'expéditeur</p>
+      </button>
+    </div>
+  </div>
+
+  <!-- ════ SEND SCREEN ════ -->
+  <div id="screenSend" class="t-screen">
+    <div class="t-header">
+      <h1>Envoyer un fichier</h1>
+    </div>
+
+    <div class="t-card">
+      <!-- Step 1: Code -->
+      <div class="t-step">
+        <div class="t-step-label">1 — Partagez ce code avec le destinataire</div>
+        <div class="code-display" id="sendCodeDisplay">
+          <div class="code-spinner"></div>
+        </div>
+        <p class="t-status" id="sendStatus">Initialisation…</p>
+      </div>
+
+      <!-- Step 2: File picker -->
+      <div class="t-step" id="stepFilePicker">
+        <div class="t-step-label">2 — Sélectionnez le fichier à envoyer</div>
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput"
+            accept=".txt,.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg">
+          <div class="dz-content">
+            <div class="dz-icon">📁</div>
+            <p class="dz-text">Glissez un fichier ici</p>
+            <p class="dz-or">ou</p>
+            <label for="fileInput" class="btn-primary" style="cursor:pointer">Choisir un fichier</label>
+          </div>
+        </div>
+
+        <div class="file-preview" id="filePreview">
+          <span class="file-prev-icon" id="fileIcon">📄</span>
+          <div class="file-prev-info">
+            <span class="file-prev-name" id="fileName">—</span>
+            <span class="file-prev-size" id="fileSize">—</span>
+          </div>
+          <button class="file-remove-btn" id="btnFileRemove" title="Retirer">✕</button>
+        </div>
+
+        <div class="t-error" id="fileError"></div>
+      </div>
+
+      <!-- Send button -->
+      <button class="btn-primary btn-full" id="btnSend" disabled>
+        Envoyer le fichier ⚡
+      </button>
+
+      <!-- Progress -->
+      <div class="progress-block" id="sendProgress">
+        <div class="prog-info">
+          <span id="sendProgLabel">Envoi en cours…</span>
+          <span id="sendProgPct">0%</span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="sendProgFill"></div>
+        </div>
+        <p class="prog-sub" id="sendProgSub"></p>
+      </div>
+    </div>
+
+    <button class="btn-back" id="btnSendBack">← Retour</button>
+  </div>
+
+  <!-- ════ RECEIVE SCREEN ════ -->
+  <div id="screenRecv" class="t-screen">
+    <div class="t-header">
+      <h1>Recevoir un fichier</h1>
+    </div>
+
+    <div class="t-card">
+      <!-- Code input -->
+      <div id="stepCodeInput">
+        <div class="t-step-label">Entrez le code fourni par l'expéditeur</div>
+        <div class="code-input-row">
+          <input type="text" id="codeInput" class="code-input"
+            placeholder="K7M2XP" maxlength="6"
+            autocomplete="off" spellcheck="false">
+          <button class="btn-primary" id="btnConnect">Se connecter</button>
+        </div>
+        <div class="t-error" id="connectError"></div>
+      </div>
+
+      <!-- Connecting state -->
+      <div class="recv-status" id="recvStatus">
+        <div class="recv-status-icon" id="recvStatusIcon">⏳</div>
+        <p id="recvStatusText">Connexion en cours…</p>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-block" id="recvProgress">
+        <div class="prog-info">
+          <span id="recvProgLabel">Réception en cours…</span>
+          <span id="recvProgPct">0%</span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="recvProgFill"></div>
+        </div>
+        <p class="prog-sub" id="recvProgSub"></p>
+      </div>
+
+      <!-- Done -->
+      <div class="done-block" id="recvDone">
+        <div class="done-icon">✅</div>
+        <h3 class="done-name" id="doneName">Fichier reçu !</h3>
+        <p class="done-hint">Le téléchargement a démarré automatiquement.</p>
+        <button class="btn-primary" id="btnNewTransfer">Nouveau transfert</button>
+      </div>
+    </div>
+
+    <button class="btn-back" id="btnRecvBack">← Retour</button>
+  </div>
+
+</main>
+
+<!-- Toast notifications -->
+<div class="toast" id="toast"></div>
+
+<script src="js/transfer.js"></script>
+</body>
+</html>

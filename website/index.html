@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flash Transfer — Partage instantané de fichiers</title>
+  <meta name="description" content="Transférez vos fichiers instantanément sur votre réseau local ou via internet. Sans compte, sans cloud, sans friction.">
+  <meta property="og:title" content="Flash Transfer">
+  <meta property="og:description" content="Partage de fichiers instantané, sans cloud.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav class="navbar">
+  <div class="nav-container">
+    <a href="index.html" class="nav-brand">
+      <span class="bolt">⚡</span>
+      <span>Flash Transfer</span>
+    </a>
+    <div class="nav-menu" id="navMenu">
+      <a href="#features" class="nav-link">Fonctionnalités</a>
+      <a href="#how" class="nav-link">Comment ça marche</a>
+      <a href="#download" class="nav-link">Télécharger</a>
+      <a href="transfer.html" class="nav-cta">Essayer en ligne →</a>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="container hero-grid">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="badge-dot"></span>
+        v1.3.0 — Nouveau : OAuth Google &amp; Version Web
+      </div>
+      <h1 class="hero-title">
+        Partagez vos fichiers<br>
+        <span class="gradient-text">en un éclair</span>
+      </h1>
+      <p class="hero-sub">
+        Transfert direct sur votre réseau local ou via internet.<br>
+        Sans compte, sans cloud, sans friction.
+      </p>
+      <div class="hero-actions">
+        <a href="#download" class="btn-primary">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Télécharger l'app
+        </a>
+        <a href="transfer.html" class="btn-ghost">
+          Essayer en ligne
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- Animated mock transfer -->
+    <div class="hero-visual" aria-hidden="true">
+      <div class="mock-wrap">
+        <div class="mock-device">
+          <div class="mock-bar">
+            <div class="mock-dots"><i></i><i></i><i></i></div>
+            <span>Flash Transfer</span>
+          </div>
+          <div class="mock-body">
+            <div class="mock-file">
+              <span class="mock-file-icon">📄</span>
+              <div>
+                <div class="mock-file-name">rapport_Q1.pdf</div>
+                <div class="mock-file-size">2.4 Mo</div>
+              </div>
+            </div>
+            <div class="mock-code">Code : <b>K7M2XP</b></div>
+            <div class="mock-prog-wrap"><div class="mock-prog-bar"></div></div>
+            <div class="mock-sent">✓ Envoyé</div>
+          </div>
+        </div>
+
+        <div class="mock-connector">
+          <div class="mock-bolt-anim">⚡</div>
+          <div class="mock-line"></div>
+        </div>
+
+        <div class="mock-device receiver">
+          <div class="mock-bar">
+            <div class="mock-dots"><i></i><i></i><i></i></div>
+            <span>Flash Transfer</span>
+          </div>
+          <div class="mock-body">
+            <div class="mock-recv-file">
+              <span>📄</span>
+              <div>
+                <div class="mock-file-name">rapport_Q1.pdf</div>
+                <div class="mock-recv-ok">Fichier reçu !</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ── -->
+<section id="features" class="section">
+  <div class="container">
+    <div class="section-head">
+      <h2>Pourquoi Flash Transfer ?</h2>
+      <p>Simple, rapide et respectueux de votre vie privée.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feat-card">
+        <div class="feat-icon">⚡</div>
+        <h3>Vitesse maximale</h3>
+        <p>Transfert direct de pair à pair sur votre réseau local. La vitesse de votre WiFi, pas d'un serveur.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🔒</div>
+        <h3>Vie privée</h3>
+        <p>Vos fichiers ne passent jamais par le cloud. Zéro stockage, zéro log, zéro trace.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🌐</div>
+        <h3>Multi-plateforme</h3>
+        <p>Windows, macOS, Linux. Et maintenant directement dans votre navigateur — aucune installation.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">📡</div>
+        <h3>Code de partage</h3>
+        <p>Un code à 6 caractères suffit pour transférer à travers internet, sans partager votre IP.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ── -->
+<section id="how" class="section section-alt">
+  <div class="container">
+    <div class="section-head">
+      <h2>Comment ça marche ?</h2>
+      <p>Trois étapes, c'est tout.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Ouvrez Flash Transfer</h3>
+        <p>Lancez l'app ou ouvrez la version web dans votre navigateur.</p>
+      </div>
+      <div class="step-line"></div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Partagez le code</h3>
+        <p>Un code unique est généré. Envoyez-le au destinataire par n'importe quel moyen.</p>
+      </div>
+      <div class="step-line"></div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Transférez !</h3>
+        <p>Le fichier est transféré directement. Rapide, sécurisé, terminé.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Web Section ── -->
+<section class="section web-section">
+  <div class="container web-grid">
+    <div class="web-text">
+      <div class="web-badge">🌐 Version Web</div>
+      <h2>Transférez depuis votre navigateur</h2>
+      <p>Pas besoin d'installer l'application. La version web permet d'envoyer et recevoir des fichiers directement depuis n'importe quel appareil.</p>
+      <div class="type-pills">
+        <span>📄 PDF</span>
+        <span>📝 Word</span>
+        <span>📊 Excel</span>
+        <span>🖼️ PNG / JPG</span>
+        <span>📃 TXT</span>
+      </div>
+      <p class="web-note">Transfert chiffré de bout en bout · Fichiers jusqu'à 25 Mo</p>
+      <a href="transfer.html" class="btn-primary">Lancer le transfert web →</a>
+    </div>
+
+    <div class="web-card-wrap">
+      <div class="web-card">
+        <div class="web-card-label">Envoyer un fichier</div>
+        <div class="web-code-box">
+          <span class="web-code-hint">Votre code</span>
+          <span class="web-code-val">K7M2XP</span>
+        </div>
+        <div class="web-file-row">📄 contrat.pdf — 1.2 Mo</div>
+        <div class="web-prog-wrap">
+          <div class="web-prog-fill"></div>
+        </div>
+        <div class="web-done">✓ Envoyé avec succès</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Download ── -->
+<section id="download" class="section section-alt download-section">
+  <div class="container">
+    <div class="section-head">
+      <h2>Télécharger Flash Transfer</h2>
+      <p>Gratuit, open source, disponible sur toutes les plateformes.</p>
+    </div>
+    <div class="dl-grid">
+      <a href="https://github.com/MedouneSGB/flash-transfer/releases/latest" class="dl-card" target="_blank" rel="noopener">
+        <div class="dl-icon">🪟</div>
+        <h3>Windows</h3>
+        <p>Windows 10 / 11</p>
+        <span class="dl-ext">.msi</span>
+      </a>
+      <a href="https://github.com/MedouneSGB/flash-transfer/releases/latest" class="dl-card" target="_blank" rel="noopener">
+        <div class="dl-icon">🍎</div>
+        <h3>macOS</h3>
+        <p>Intel &amp; Apple Silicon</p>
+        <span class="dl-ext">.dmg</span>
+      </a>
+      <a href="https://github.com/MedouneSGB/flash-transfer/releases/latest" class="dl-card" target="_blank" rel="noopener">
+        <div class="dl-icon">🐧</div>
+        <h3>Linux</h3>
+        <p>Ubuntu, Fedora &amp; autres</p>
+        <span class="dl-ext">.AppImage / .deb</span>
+      </a>
+    </div>
+    <div class="gh-link">
+      <a href="https://github.com/MedouneSGB/flash-transfer" class="btn-outline" target="_blank" rel="noopener">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        Voir sur GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <span class="bolt">⚡</span>
+      <span>Flash Transfer</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/MedouneSGB/flash-transfer" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/MedouneSGB/flash-transfer/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="transfer.html">Version Web</a>
+    </div>
+  </div>
+  <div class="container footer-bottom">
+    <p>Open source — MIT License · Made with ⚡ by MedouneSGB</p>
+  </div>
+</footer>
+
+<script>
+  // Mobile nav toggle
+  const toggle = document.getElementById('navToggle');
+  const menu   = document.getElementById('navMenu');
+  toggle.addEventListener('click', () => menu.classList.toggle('open'));
+
+  // Close menu on link click
+  menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
+
+  // Smooth scroll
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const el = document.querySelector(a.getAttribute('href'));
+      if (el) { e.preventDefault(); el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+  });
+</script>
+</body>
+</html>
