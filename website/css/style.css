@@ -435,6 +435,11 @@ img, svg { display: block; }
 .mode-card-icon { font-size: 2.4rem; }
 .mode-card h2   { font-size: 1.2rem; font-weight: 800; }
 .mode-card p    { font-size: .85rem; color: var(--muted); line-height: 1.5; }
+.mode-section-title {
+  font-size: .78rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em;
+  margin-bottom: -4px;
+}
 .mode-or {
   text-align: center; color: var(--muted);
   font-size: .85rem; padding: 14px 0;
@@ -471,6 +476,52 @@ img, svg { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .t-status { font-size: .84rem; color: var(--muted); text-align: center; }
+
+/* QR code canvas (sender) */
+.qr-canvas {
+  display: block; margin: 0 auto;
+  width: 160px; height: 160px;
+  border: 3px solid var(--primary);
+  border-radius: 10px;
+  image-rendering: pixelated;
+  background: #fff;
+  box-shadow: 0 0 20px rgba(255,215,0,.2);
+}
+
+/* QR divider */
+.qr-divider {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--muted); font-size: .78rem; margin: 2px 0;
+}
+.qr-divider::before, .qr-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* QR scanner button */
+.btn-scan-qr {
+  width: 100%; padding: 10px; border-radius: var(--radius-sm);
+  background: transparent; border: 1.5px solid var(--primary);
+  color: var(--primary); font-size: .88rem; font-weight: 600;
+  cursor: pointer; transition: background var(--ease);
+}
+.btn-scan-qr:hover { background: rgba(255,215,0,.08); }
+
+/* QR scanner video wrapper */
+.qr-scanner-wrap {
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+}
+#qrVideo {
+  width: 100%; border-radius: 10px;
+  border: 2px solid var(--primary);
+  background: #000; aspect-ratio: 4/3; object-fit: cover;
+}
+.btn-stop-scan {
+  width: 100%; padding: 8px; border-radius: var(--radius-sm);
+  background: transparent; border: 1px solid var(--danger, #f85149);
+  color: var(--danger, #f85149); font-size: .84rem; cursor: pointer;
+  transition: background var(--ease);
+}
+.btn-stop-scan:hover { background: rgba(248,81,73,.1); }
 
 /* Dropzone */
 .dropzone {
@@ -582,9 +633,88 @@ img, svg { display: block; }
   animation: toast-in .25s ease;
 }
 .toast.show { display: block; }
-.toast-error { border-color: rgba(248,113,113,.4); }
-.toast-ok    { border-color: rgba(74,222,128,.4); }
+.toast-error   { border-color: rgba(248,113,113,.4); }
+.toast-ok,
+.toast-success { border-color: rgba(74,222,128,.4); }
 @keyframes toast-in { from{transform:translateX(-50%) translateY(12px);opacity:0} to{transform:translateX(-50%) translateY(0);opacity:1} }
+
+/* ═══════════════════════════════════════════
+   FILE LIST (send side — multi-file)
+   ═══════════════════════════════════════════ */
+.file-list { display: flex; flex-direction: column; gap: 6px; }
+.file-list-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px;
+}
+.file-list-icon { font-size: 1.3rem; flex-shrink: 0; }
+.file-list-info { flex: 1; min-width: 0; }
+.file-list-name {
+  display: block; font-size: .88rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-list-size { font-size: .75rem; color: var(--muted); }
+
+/* ═══════════════════════════════════════════
+   GALLERY (receive side)
+   ═══════════════════════════════════════════ */
+.gallery-header {
+  font-size: 1.05rem; font-weight: 700;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.gallery-item {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#galleryList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.gallery-item-info { display: flex; align-items: center; gap: 10px; }
+.gallery-item-icon { font-size: 1.6rem; flex-shrink: 0; }
+.gallery-item-meta { flex: 1; min-width: 0; }
+.gallery-item-name {
+  display: block; font-size: .9rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gallery-item-size { font-size: .75rem; color: var(--muted); }
+.gallery-item-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Gallery action buttons */
+.btn-ga {
+  padding: 6px 12px; border-radius: 7px; font-size: .8rem; font-weight: 600;
+  cursor: pointer; transition: all var(--ease);
+  border: 1.5px solid var(--border);
+  background: var(--surface); color: var(--text);
+}
+.btn-ga:hover { border-color: var(--primary); color: var(--primary); }
+.btn-dl  { border-color: rgba(245,158,11,.4); color: var(--primary); }
+.btn-dl:hover  { background: rgba(245,158,11,.08); }
+.btn-prev:hover { background: rgba(99,179,237,.08); border-color: rgba(99,179,237,.5); color: #63b3ed; }
+.btn-prn:hover  { background: rgba(74,222,128,.08); border-color: rgba(74,222,128,.4);  color: #4ade80; }
+
+/* Inline file preview */
+.gallery-preview {
+  border-top: 1px solid var(--border); padding-top: 10px;
+}
+.preview-img {
+  display: block; max-width: 100%; max-height: 420px;
+  margin: 0 auto; border-radius: 8px;
+  object-fit: contain;
+}
+.preview-pdf {
+  display: block; width: 100%; height: 480px;
+  border: none; border-radius: 8px;
+  background: #fff;
+}
+.preview-text {
+  font-family: 'Courier New', monospace; font-size: .8rem;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin: 0;
+  max-height: 320px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
 
 /* ═══════════════════════════════════════════
    RESPONSIVE
