@@ -435,6 +435,11 @@ img, svg { display: block; }
 .mode-card-icon { font-size: 2.4rem; }
 .mode-card h2   { font-size: 1.2rem; font-weight: 800; }
 .mode-card p    { font-size: .85rem; color: var(--muted); line-height: 1.5; }
+.mode-section-title {
+  font-size: .78rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em;
+  margin-bottom: -4px;
+}
 .mode-or {
   text-align: center; color: var(--muted);
   font-size: .85rem; padding: 14px 0;

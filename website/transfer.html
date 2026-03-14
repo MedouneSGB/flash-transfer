@@ -31,9 +31,9 @@
   <div id="screenMode" class="t-screen active">
     <div class="t-header">
       <h1>Transfert Web</h1>
-      <p>Envoyez ou recevez des fichiers directement dans votre navigateur</p>
+      <p>Choisissez votre rôle pour démarrer</p>
       <div class="type-info">
-        <span class="type-info-label">Formats acceptés :</span>
+        <span class="type-info-label">Acceptés :</span>
         <span class="type-chip">PDF</span>
         <span class="type-chip">Word</span>
         <span class="type-chip">Excel</span>
@@ -44,83 +44,58 @@
       </div>
     </div>
 
+    <div class="mode-section-title">📤 Envoyer des fichiers</div>
     <div class="mode-cards">
-      <button class="mode-card" id="btnRecvMode">
-        <div class="mode-card-icon">📥</div>
-        <h2>Recevoir</h2>
-        <p>Affichez votre QR code — l'expéditeur le scanne et vous envoie les fichiers</p>
+      <button class="mode-card" id="btnSendCode">
+        <div class="mode-card-icon">🔢</div>
+        <h2>Par code</h2>
+        <p>J'affiche mon code — le destinataire le saisit sur son appareil</p>
       </button>
       <div class="mode-or">ou</div>
-      <button class="mode-card" id="btnSendMode">
-        <div class="mode-card-icon">📤</div>
-        <h2>Envoyer</h2>
-        <p>Scannez le QR du destinataire, puis sélectionnez vos fichiers</p>
+      <button class="mode-card" id="btnSendScan">
+        <div class="mode-card-icon">📷</div>
+        <h2>Scanner un QR</h2>
+        <p>Je scanne le QR du destinataire et je sélectionne mes fichiers</p>
       </button>
     </div>
-  </div>
 
-  <!-- ════ RECEIVE SCREEN ════ -->
-  <div id="screenRecv" class="t-screen">
-    <div class="t-header">
-      <h1>Recevoir des fichiers</h1>
+    <div class="mode-section-title" style="margin-top:18px">📥 Recevoir des fichiers</div>
+    <div class="mode-cards">
+      <button class="mode-card" id="btnRecvCode">
+        <div class="mode-card-icon">⌨️</div>
+        <h2>Saisir un code</h2>
+        <p>J'entre le code affiché sur l'appareil de l'expéditeur</p>
+      </button>
+      <div class="mode-or">ou</div>
+      <button class="mode-card" id="btnRecvQR">
+        <div class="mode-card-icon">🖼️</div>
+        <h2>Mon QR code</h2>
+        <p>J'affiche mon QR — l'expéditeur le scanne et m'envoie les fichiers</p>
+      </button>
     </div>
-
-    <div class="t-card">
-
-      <!-- QR block (shown initially) -->
-      <div id="recvQRBlock">
-        <div class="t-step-label">Faites scanner ce QR code par l'expéditeur</div>
-        <canvas id="qrCanvas" class="qr-canvas" style="display:none"></canvas>
-        <div class="code-display" id="recvCodeDisplay">
-          <div class="code-spinner"></div>
-        </div>
-        <p class="t-status" id="recvStatus">Initialisation…</p>
-      </div>
-
-      <!-- Connected status -->
-      <div class="recv-status" id="recvConnStatus" style="display:none">
-        <div class="recv-status-icon" id="recvConnIcon">⚡</div>
-        <p id="recvConnText">Connecté — en attente des fichiers…</p>
-      </div>
-
-      <!-- Progress -->
-      <div class="progress-block" id="recvProgress" style="display:none">
-        <div class="prog-info">
-          <span id="recvProgLabel">Réception en cours…</span>
-          <span id="recvProgPct">0%</span>
-        </div>
-        <div class="prog-track">
-          <div class="prog-fill" id="recvProgFill"></div>
-        </div>
-        <p class="prog-sub" id="recvProgSub"></p>
-      </div>
-
-      <!-- File gallery (shown after all files received) -->
-      <div id="recvGallery" style="display:none">
-        <div class="gallery-header">
-          <span id="galleryCount">Fichiers reçus</span>
-        </div>
-        <div id="galleryList"></div>
-        <button class="btn-primary btn-full" id="btnNewTransfer" style="margin-top:6px">
-          Nouveau transfert
-        </button>
-      </div>
-
-    </div>
-
-    <button class="btn-back" id="btnRecvBack">← Retour</button>
   </div>
 
   <!-- ════ SEND SCREEN ════ -->
+  <!-- Used by both "Envoyer par code" and "Envoyer par scan" sub-modes -->
   <div id="screenSend" class="t-screen">
     <div class="t-header">
-      <h1>Envoyer des fichiers</h1>
+      <h1 id="sendTitle">Envoyer des fichiers</h1>
     </div>
 
     <div class="t-card">
 
-      <!-- Step 1: Connect to receiver -->
-      <div class="t-step" id="stepConnect">
+      <!-- ── Step 1A: CODE mode — show MY code, receiver dials in ── -->
+      <div id="stepSendCode" style="display:none">
+        <div class="t-step-label">Partagez ce code avec le destinataire</div>
+        <canvas id="qrCanvasSend" class="qr-canvas" style="display:none"></canvas>
+        <div class="code-display" id="sendCodeDisplay">
+          <div class="code-spinner"></div>
+        </div>
+        <p class="t-status" id="sendStatus">Initialisation…</p>
+      </div>
+
+      <!-- ── Step 1B: SCAN mode — scan receiver's QR / enter their code ── -->
+      <div id="stepSendScan" style="display:none">
         <div class="t-step-label">1 — Connectez-vous au destinataire</div>
         <button class="btn-scan-qr" id="btnScanQR">📷 Scanner le QR code</button>
         <div class="qr-divider"><span>ou entrez le code</span></div>
@@ -128,25 +103,25 @@
           <input type="text" id="sendCodeInput" class="code-input"
             placeholder="K7M2XP" maxlength="6"
             autocomplete="off" spellcheck="false">
-          <button class="btn-primary" id="btnConnect">Se connecter</button>
+          <button class="btn-primary" id="btnConnect">Connecter</button>
         </div>
         <div class="qr-scanner-wrap" id="qrScannerWrap" style="display:none">
           <video id="qrVideo" autoplay playsinline muted></video>
           <canvas id="qrScanCanvas" style="display:none"></canvas>
-          <button class="btn-stop-scan" id="btnStopScan">✕ Arrêter le scan</button>
+          <button class="btn-stop-scan" id="btnStopScan">✕ Arrêter</button>
         </div>
         <div class="t-error" id="connectError"></div>
       </div>
 
-      <!-- Connecting indicator -->
+      <!-- Connecting indicator (scan mode) -->
       <div class="recv-status" id="sendConnStatus" style="display:none">
         <div class="recv-status-icon">⏳</div>
         <p id="sendConnText">Connexion en cours…</p>
       </div>
 
-      <!-- Step 2: File picker (shown after connection) -->
+      <!-- ── Step 2: File picker (both modes, shown once connected) ── -->
       <div class="t-step" id="stepFiles" style="display:none">
-        <div class="t-step-label">2 — Sélectionnez les fichiers à envoyer</div>
+        <div class="t-step-label" id="stepFilesLabel">Sélectionnez vos fichiers</div>
         <div class="dropzone" id="dropzone">
           <input type="file" id="fileInput" multiple
             accept=".txt,.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg">
@@ -189,6 +164,71 @@
     </div>
 
     <button class="btn-back" id="btnSendBack">← Retour</button>
+  </div>
+
+  <!-- ════ RECEIVE SCREEN ════ -->
+  <!-- Used by both "Recevoir par code" and "Recevoir par QR" sub-modes -->
+  <div id="screenRecv" class="t-screen">
+    <div class="t-header">
+      <h1 id="recvTitle">Recevoir des fichiers</h1>
+    </div>
+
+    <div class="t-card">
+
+      <!-- ── Step 1A: QR mode — show MY QR, sender scans ── -->
+      <div id="stepRecvQR" style="display:none">
+        <div class="t-step-label">Faites scanner ce QR code par l'expéditeur</div>
+        <canvas id="qrCanvas" class="qr-canvas" style="display:none"></canvas>
+        <div class="code-display" id="recvCodeDisplay">
+          <div class="code-spinner"></div>
+        </div>
+        <p class="t-status" id="recvQRStatus">Initialisation…</p>
+      </div>
+
+      <!-- ── Step 1B: CODE mode — I enter sender's code ── -->
+      <div id="stepRecvCode" style="display:none">
+        <div class="t-step-label">Entrez le code de l'expéditeur</div>
+        <div class="code-input-row">
+          <input type="text" id="recvCodeInput" class="code-input"
+            placeholder="K7M2XP" maxlength="6"
+            autocomplete="off" spellcheck="false">
+          <button class="btn-primary" id="btnRecvConnect">Connecter</button>
+        </div>
+        <div class="t-error" id="recvConnectError"></div>
+      </div>
+
+      <!-- Connected status (both modes) -->
+      <div class="recv-status" id="recvConnStatus" style="display:none">
+        <div class="recv-status-icon" id="recvConnIcon">⚡</div>
+        <p id="recvConnText">Connecté — en attente des fichiers…</p>
+      </div>
+
+      <!-- Progress (both modes) -->
+      <div class="progress-block" id="recvProgress" style="display:none">
+        <div class="prog-info">
+          <span id="recvProgLabel">Réception en cours…</span>
+          <span id="recvProgPct">0%</span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="recvProgFill"></div>
+        </div>
+        <p class="prog-sub" id="recvProgSub"></p>
+      </div>
+
+      <!-- File gallery (both modes) -->
+      <div id="recvGallery" style="display:none">
+        <div class="gallery-header">
+          <span id="galleryCount">Fichiers reçus</span>
+        </div>
+        <div id="galleryList"></div>
+        <button class="btn-primary btn-full" id="btnNewTransfer" style="margin-top:6px">
+          Nouveau transfert
+        </button>
+      </div>
+
+    </div>
+
+    <button class="btn-back" id="btnRecvBack">← Retour</button>
   </div>
 
 </main>
