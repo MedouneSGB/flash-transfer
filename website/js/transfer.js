@@ -330,7 +330,8 @@ function connectToSender(rawCode) {
   document.getElementById('recvStatusText').textContent = 'Connexion en cours…';
   document.getElementById('recvStatusIcon').textContent = '⏳';
 
-  conn = peer.connect(code, { reliable: true });
+  // serialization:'raw' = envoie ArrayBuffer brut sans binarypack (évite la corruption)
+  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
 
   conn.on('open', () => {
     document.getElementById('recvStatusText').textContent = '⚡ Connecté — en attente du fichier…';
@@ -353,21 +354,34 @@ function connectToSender(rawCode) {
         document.getElementById('recvProgLabel').textContent = 'Réception de ' + msg.name + '…';
 
       } else if (msg.__ft === 'done') {
-        const blob = new Blob(recvChunks, { type: recvMeta.mime });
+        // Reconstruction du fichier à partir des chunks
+        const blob = new Blob(recvChunks, { type: recvMeta.mime || 'application/octet-stream' });
         downloadBlob(blob, recvMeta.name);
         showDone(recvMeta.name);
       }
 
-    } else if (data instanceof ArrayBuffer) {
-      recvChunks.push(data);
-      recvBytes += data.byteLength;
-      if (recvMeta) {
-        const pct = Math.round(recvBytes / recvMeta.size * 100);
-        document.getElementById('recvProgPct').textContent  = pct + '%';
-        document.getElementById('recvProgFill').style.width = pct + '%';
-        document.getElementById('recvProgSub').textContent  =
-          `${fmtSize(recvBytes)} / ${fmtSize(recvMeta.size)}`;
+    } else {
+      // Chunk binaire — normaliser en ArrayBuffer quelle que soit le type reçu
+      // (ArrayBuffer, Uint8Array, Buffer Node.js…)
+      let buf;
+      if (data instanceof ArrayBuffer) {
+        buf = data;
+      } else if (ArrayBuffer.isView(data)) {
+        buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      } else if (data instanceof Blob) {
+        // Cas rare — lire de façon async
+        data.arrayBuffer().then(ab => {
+          recvChunks.push(ab);
+          recvBytes += ab.byteLength;
+          updateRecvProgress();
+        });
+        return;
+      } else {
+        return; // type inconnu, ignorer
       }
+      recvChunks.push(buf);
+      recvBytes += buf.byteLength;
+      updateRecvProgress();
     }
   });
 
@@ -399,6 +413,15 @@ function downloadBlob(blob, filename) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+function updateRecvProgress() {
+  if (!recvMeta) return;
+  const pct = Math.min(100, Math.round(recvBytes / recvMeta.size * 100));
+  document.getElementById('recvProgPct').textContent  = pct + '%';
+  document.getElementById('recvProgFill').style.width = pct + '%';
+  document.getElementById('recvProgSub').textContent  =
+    `${fmtSize(recvBytes)} / ${fmtSize(recvMeta.size)}`;
 }
 
 function showDone(filename) {
