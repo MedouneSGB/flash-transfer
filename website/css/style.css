@@ -472,6 +472,52 @@ img, svg { display: block; }
 
 .t-status { font-size: .84rem; color: var(--muted); text-align: center; }
 
+/* QR code canvas (sender) */
+.qr-canvas {
+  display: block; margin: 0 auto;
+  width: 160px; height: 160px;
+  border: 3px solid var(--primary);
+  border-radius: 10px;
+  image-rendering: pixelated;
+  background: #fff;
+  box-shadow: 0 0 20px rgba(255,215,0,.2);
+}
+
+/* QR divider */
+.qr-divider {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--muted); font-size: .78rem; margin: 2px 0;
+}
+.qr-divider::before, .qr-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* QR scanner button */
+.btn-scan-qr {
+  width: 100%; padding: 10px; border-radius: var(--radius-sm);
+  background: transparent; border: 1.5px solid var(--primary);
+  color: var(--primary); font-size: .88rem; font-weight: 600;
+  cursor: pointer; transition: background var(--ease);
+}
+.btn-scan-qr:hover { background: rgba(255,215,0,.08); }
+
+/* QR scanner video wrapper */
+.qr-scanner-wrap {
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+}
+#qrVideo {
+  width: 100%; border-radius: 10px;
+  border: 2px solid var(--primary);
+  background: #000; aspect-ratio: 4/3; object-fit: cover;
+}
+.btn-stop-scan {
+  width: 100%; padding: 8px; border-radius: var(--radius-sm);
+  background: transparent; border: 1px solid var(--danger, #f85149);
+  color: var(--danger, #f85149); font-size: .84rem; cursor: pointer;
+  transition: background var(--ease);
+}
+.btn-stop-scan:hover { background: rgba(248,81,73,.1); }
+
 /* Dropzone */
 .dropzone {
   position: relative;

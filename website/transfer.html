@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="css/style.css">
   <!-- PeerJS for WebRTC P2P -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/qrcode-gen.js"></script>
+  <script src="js/jsQR.js"></script>
 </head>
 <body class="t-body">
 
@@ -73,6 +75,7 @@
         <div class="code-display" id="sendCodeDisplay">
           <div class="code-spinner"></div>
         </div>
+        <canvas id="qrCanvas" class="qr-canvas" style="display:none"></canvas>
         <p class="t-status" id="sendStatus">Initialisation…</p>
       </div>
 
@@ -138,6 +141,13 @@
             placeholder="K7M2XP" maxlength="6"
             autocomplete="off" spellcheck="false">
           <button class="btn-primary" id="btnConnect">Se connecter</button>
+        </div>
+        <div class="qr-divider"><span>ou</span></div>
+        <button class="btn-scan-qr" id="btnScanQR">📷 Scanner le QR code</button>
+        <div class="qr-scanner-wrap" id="qrScannerWrap" style="display:none">
+          <video id="qrVideo" autoplay playsinline muted></video>
+          <canvas id="qrScanCanvas" style="display:none"></canvas>
+          <button class="btn-stop-scan" id="btnStopScan">✕ Arrêter le scan</button>
         </div>
         <div class="t-error" id="connectError"></div>
       </div>

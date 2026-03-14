@@ -137,6 +137,87 @@ function resetAll() {
 }
 
 // ═══════════════════════════════════════════
+//  QR CODE
+// ═══════════════════════════════════════════
+function generateQRCode(text) {
+  const canvas = document.getElementById('qrCanvas');
+  if (!canvas || typeof qrcode === 'undefined') return;
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(text);
+    qr.make();
+    const size = qr.getModuleCount();
+    const cellSize = Math.max(2, Math.floor(160 / size));
+    canvas.width  = size * cellSize;
+    canvas.height = size * cellSize;
+    const ctx = canvas.getContext('2d');
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        ctx.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+        ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+      }
+    }
+    canvas.style.display = 'block';
+  } catch(e) { console.warn('QR gen error:', e); }
+}
+
+let qrScanStream = null;
+let qrScanAnimFrame = null;
+
+async function startQRScanner() {
+  const wrap  = document.getElementById('qrScannerWrap');
+  const video = document.getElementById('qrVideo');
+  const scanCanvas = document.getElementById('qrScanCanvas');
+  try {
+    qrScanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    video.srcObject = qrScanStream;
+    wrap.style.display = 'flex';
+    video.addEventListener('loadedmetadata', () => {
+      scanCanvas.width  = video.videoWidth  || 640;
+      scanCanvas.height = video.videoHeight || 480;
+      scanQRFrame(video, scanCanvas);
+    }, { once: true });
+  } catch(e) {
+    toast('Caméra non disponible : ' + e.message);
+  }
+}
+
+function scanQRFrame(video, canvas) {
+  if (!qrScanStream) return;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'dontInvert',
+  });
+  if (code && code.data) {
+    const text = code.data.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (text.length === 6) {
+      stopQRScanner();
+      document.getElementById('codeInput').value = text;
+      toast('QR scanné : ' + text, 'success');
+      document.getElementById('btnConnect').click();
+      return;
+    }
+  }
+  qrScanAnimFrame = requestAnimationFrame(() => scanQRFrame(video, canvas));
+}
+
+function stopQRScanner() {
+  if (qrScanStream) {
+    qrScanStream.getTracks().forEach(t => t.stop());
+    qrScanStream = null;
+  }
+  if (qrScanAnimFrame) {
+    cancelAnimationFrame(qrScanAnimFrame);
+    qrScanAnimFrame = null;
+  }
+  document.getElementById('qrScannerWrap').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════
 //  SEND MODE
 // ═══════════════════════════════════════════
 function initSend() {
@@ -152,8 +233,9 @@ function initSend() {
 
   peer = new Peer(code, { debug: 0 });
 
-  peer.on('open', () => {
+  peer.on('open', id => {
     setSendStatus('⏳ En attente du destinataire…');
+    generateQRCode(id);
   });
 
   peer.on('connection', c => {
@@ -205,6 +287,8 @@ function resetSendUI() {
   hideError('fileError');
   setSendStatus('Initialisation…');
   document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
+  const qrC = document.getElementById('qrCanvas');
+  if (qrC) qrC.style.display = 'none';
   sendStarted = false; peerReady = false;
 }
 
@@ -447,6 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showScreen('screenMode');
   });
   document.getElementById('btnRecvBack').addEventListener('click', () => {
+    stopQRScanner();
     resetAll(); resetRecvUI();
     showScreen('screenMode');
   });
@@ -499,6 +584,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('codeInput').addEventListener('input', e => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
+
+  // ── QR scanner ──
+  document.getElementById('btnScanQR').addEventListener('click', startQRScanner);
+  document.getElementById('btnStopScan').addEventListener('click', stopQRScanner);
 
   // ── New transfer (receiver done state) ──
   document.getElementById('btnNewTransfer').addEventListener('click', () => {
