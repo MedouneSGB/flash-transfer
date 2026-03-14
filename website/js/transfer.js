@@ -181,7 +181,6 @@ async function startQRScanner() {
       video: { facingMode: { ideal: 'environment' } }
     });
     video.srcObject = qrScanStream;
-    showBlock('qrScannerWrap');
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('qrScanCanvas');
       sc.width  = video.videoWidth  || 640;
@@ -190,6 +189,7 @@ async function startQRScanner() {
     }, { once: true });
   } catch (e) {
     toast('Caméra non disponible : ' + e.message);
+    stopQRScanner();
   }
 }
 
@@ -215,7 +215,9 @@ function scanQRFrame(video, canvas) {
 function stopQRScanner() {
   if (qrScanStream) { qrScanStream.getTracks().forEach(t => t.stop()); qrScanStream = null; }
   if (qrScanAnim)   { cancelAnimationFrame(qrScanAnim); qrScanAnim = null; }
-  hide('qrScannerWrap');
+  hide('panelSendScan');
+  const btn = document.getElementById('btnScanQR');
+  if (btn) btn.classList.remove('active');
 }
 
 // ═══════════════════════════════════════════
@@ -231,7 +233,6 @@ async function startRecvQRScanner() {
       video: { facingMode: { ideal: 'environment' } }
     });
     video.srcObject = recvQrScanStream;
-    showBlock('recvQrScannerWrap');
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('recvQrScanCanvas');
       sc.width  = video.videoWidth  || 640;
@@ -240,6 +241,7 @@ async function startRecvQRScanner() {
     }, { once: true });
   } catch (e) {
     toast('Caméra non disponible : ' + e.message);
+    stopRecvQRScanner();
   }
 }
 
@@ -265,7 +267,9 @@ function scanRecvQRFrame(video, canvas) {
 function stopRecvQRScanner() {
   if (recvQrScanStream) { recvQrScanStream.getTracks().forEach(t => t.stop()); recvQrScanStream = null; }
   if (recvQrScanAnim)   { cancelAnimationFrame(recvQrScanAnim); recvQrScanAnim = null; }
-  hide('recvQrScannerWrap');
+  hide('panelRecvScan');
+  const btn = document.getElementById('btnRecvScanQR');
+  if (btn) btn.classList.remove('active');
 }
 
 // ═══════════════════════════════════════════
@@ -281,9 +285,12 @@ function initSend() {
   hide('btnSend');
   hide('sendProgress');
   hide('sendDone');
-  hide('qrScannerWrap');
   hideError('fileError');
   hideError('connectError');
+  ['panelSendCode', 'panelSendQR', 'panelSendScan', 'panelSendEnter'].forEach(hide);
+  ['btnToggleSendCode', 'btnToggleSendQR', 'btnScanQR', 'btnToggleSendEnter'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.classList.remove('active');
+  });
   const fl = document.getElementById('fileListEl');
   if (fl) fl.innerHTML = '';
   if (document.getElementById('sendCodeInput'))
@@ -291,10 +298,9 @@ function initSend() {
   selectedFiles = []; sendQueue = []; sendStarted = false; peerReady = false;
   updateSendBtn();
 
-  // Show own QR code (receiver may scan this)
+  // Initialise peer (QR + code générés en arrière-plan, visibles via panneaux)
   const myCode = genCode();
   document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
-  document.getElementById('qrCanvasSend').style.display = 'none';
 
   peer = new Peer(myCode, { debug: 0 });
 
@@ -378,7 +384,7 @@ function onSendConnected() {
   peerReady = true;
   hide('sendConnStatus');
   hide('stepConnect');
-  hide('mySendQRWrap');
+  stopQRScanner();
   showBlock('btnSend');
   updateSendBtn();
   toast('Destinataire connecté !', 'success');
@@ -512,7 +518,10 @@ function initRecv() {
 
   hide('recvConnStatus'); hide('recvProgress'); hide('recvGallery');
   hideError('recvConnectError');
-  hide('recvQrScannerWrap');
+  ['panelRecvCode', 'panelRecvQR', 'panelRecvScan', 'panelRecvEnter'].forEach(hide);
+  ['btnToggleRecvCode', 'btnToggleRecvQR', 'btnRecvScanQR', 'btnToggleRecvEnter'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.classList.remove('active');
+  });
   if (document.getElementById('recvCodeInput'))
     document.getElementById('recvCodeInput').value = '';
   recvFiles = []; currentRecvIdx = -1;
@@ -521,10 +530,9 @@ function initRecv() {
   document.getElementById('recvProgFill').style.width = '0';
   document.getElementById('galleryList').innerHTML    = '';
 
-  // Show own QR + code (sender can scan this)
+  // Initialise peer (QR + code générés en arrière-plan, visibles via panneaux)
   const myCode = genCode();
   document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
-  document.getElementById('qrCanvas').style.display = 'none';
   setText('recvQRStatus', 'Initialisation…');
 
   peer = new Peer(myCode, { debug: 0 });
@@ -595,8 +603,8 @@ function connectToOtherAsRecv(rawCode) {
 }
 
 function setupRecvConn(c) {
-  hide('stepRecvQR');
   hide('stepRecvConnect');
+  stopRecvQRScanner();
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⚡');
   setText('recvConnText', 'Connecté — en attente des fichiers…');
@@ -757,6 +765,31 @@ function downloadBlob(blob, filename) {
 }
 
 // ═══════════════════════════════════════════
+//  CONN ACTION TOGGLE GRID
+// ═══════════════════════════════════════════
+function setupConnActions(actionMap) {
+  actionMap.forEach(item => {
+    const btn = document.getElementById(item.btnId);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const wasActive = btn.classList.contains('active');
+      actionMap.forEach(({ btnId: bId, panelId: pId, onClose: oc }) => {
+        const b = document.getElementById(bId);
+        const wasOpen = b && b.classList.contains('active');
+        if (b) b.classList.remove('active');
+        hide(pId);
+        if (wasOpen && oc) oc();
+      });
+      if (!wasActive) {
+        btn.classList.add('active');
+        showBlock(item.panelId);
+        if (item.onOpen) item.onOpen();
+      }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
@@ -773,8 +806,13 @@ document.addEventListener('DOMContentLoaded', () => {
     stopRecvQRScanner(); resetAll(); showScreen('screenMode');
   });
 
-  // ── Send: QR scanner ──
-  document.getElementById('btnScanQR').addEventListener('click', startQRScanner);
+  // ── Send: conn action grid ──
+  setupConnActions([
+    { btnId: 'btnToggleSendCode',  panelId: 'panelSendCode' },
+    { btnId: 'btnToggleSendQR',    panelId: 'panelSendQR' },
+    { btnId: 'btnScanQR',          panelId: 'panelSendScan', onOpen: startQRScanner, onClose: stopQRScanner },
+    { btnId: 'btnToggleSendEnter', panelId: 'panelSendEnter' },
+  ]);
   document.getElementById('btnStopScan').addEventListener('click', stopQRScanner);
 
   // ── Send: connect to receiver by code ──
@@ -788,8 +826,13 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
 
-  // ── Recv: QR scanner ──
-  document.getElementById('btnRecvScanQR').addEventListener('click', startRecvQRScanner);
+  // ── Recv: conn action grid ──
+  setupConnActions([
+    { btnId: 'btnToggleRecvCode',  panelId: 'panelRecvCode' },
+    { btnId: 'btnToggleRecvQR',    panelId: 'panelRecvQR' },
+    { btnId: 'btnRecvScanQR',      panelId: 'panelRecvScan', onOpen: startRecvQRScanner, onClose: stopRecvQRScanner },
+    { btnId: 'btnToggleRecvEnter', panelId: 'panelRecvEnter' },
+  ]);
   document.getElementById('btnRecvStopScan').addEventListener('click', stopRecvQRScanner);
 
   // ── Recv: connect to sender by code ──

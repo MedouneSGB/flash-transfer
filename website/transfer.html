@@ -86,30 +86,46 @@
       <!-- Step 2: Connect -->
       <div class="t-step" id="stepConnect" style="margin-top:16px">
         <div class="t-step-label">2 — Connectez-vous au destinataire</div>
-
-        <!-- My own QR + code (receiver can scan me) -->
-        <div id="mySendQRWrap" style="text-align:center;margin-bottom:8px">
-          <p style="font-size:.82rem;color:var(--muted);margin-bottom:6px">Mon code (à faire scanner) :</p>
-          <canvas id="qrCanvasSend" class="qr-canvas" style="display:none"></canvas>
-          <div class="code-display" id="sendCodeDisplay" style="margin-top:6px">
+        <div class="conn-actions">
+          <button class="conn-action-btn" id="btnToggleSendCode">
+            <span class="btn-action-icon">🔢</span>
+            <span>Partager code</span>
+          </button>
+          <button class="conn-action-btn" id="btnToggleSendQR">
+            <span class="btn-action-icon">📱</span>
+            <span>Partager QR Code</span>
+          </button>
+          <button class="conn-action-btn" id="btnScanQR">
+            <span class="btn-action-icon">📷</span>
+            <span>Scanner QR Code</span>
+          </button>
+          <button class="conn-action-btn" id="btnToggleSendEnter">
+            <span class="btn-action-icon">⌨️</span>
+            <span>Entrer code</span>
+          </button>
+        </div>
+        <div class="conn-panel" id="panelSendCode">
+          <div class="code-display" id="sendCodeDisplay">
             <div class="code-spinner"></div>
           </div>
         </div>
-
-        <div class="qr-divider"><span>ou scanner le code du destinataire</span></div>
-
-        <button class="btn-scan-qr" id="btnScanQR">📷 Scanner le QR code</button>
-        <div class="qr-divider"><span>ou entrez le code</span></div>
-        <div class="code-input-row">
-          <input type="text" id="sendCodeInput" class="code-input"
-            placeholder="K7M2XP" maxlength="6"
-            autocomplete="off" spellcheck="false">
-          <button class="btn-primary" id="btnConnect">Connecter</button>
+        <div class="conn-panel" id="panelSendQR">
+          <canvas id="qrCanvasSend" class="qr-canvas"></canvas>
         </div>
-        <div class="qr-scanner-wrap" id="qrScannerWrap" style="display:none">
-          <video id="qrVideo" autoplay playsinline muted></video>
-          <canvas id="qrScanCanvas" style="display:none"></canvas>
-          <button class="btn-stop-scan" id="btnStopScan">✕ Arrêter</button>
+        <div class="conn-panel" id="panelSendScan">
+          <div class="qr-scanner-wrap" id="qrScannerWrap">
+            <video id="qrVideo" autoplay playsinline muted></video>
+            <canvas id="qrScanCanvas" style="display:none"></canvas>
+            <button class="btn-stop-scan" id="btnStopScan">✕ Arrêter</button>
+          </div>
+        </div>
+        <div class="conn-panel" id="panelSendEnter">
+          <div class="code-input-row">
+            <input type="text" id="sendCodeInput" class="code-input"
+              placeholder="K7M2XP" maxlength="6"
+              autocomplete="off" spellcheck="false">
+            <button class="btn-primary" id="btnConnect">Connecter</button>
+          </div>
         </div>
         <div class="t-error" id="connectError"></div>
       </div>
@@ -158,32 +174,50 @@
 
     <div class="t-card">
 
-      <!-- My own QR + code (sender can scan me) -->
-      <div class="t-step" id="stepRecvQR">
-        <div class="t-step-label">Mon code (à faire scanner par l'expéditeur)</div>
-        <canvas id="qrCanvas" class="qr-canvas" style="display:none"></canvas>
-        <div class="code-display" id="recvCodeDisplay">
-          <div class="code-spinner"></div>
+      <!-- Connect / Share options -->
+      <div class="t-step" id="stepRecvConnect">
+        <div class="conn-actions">
+          <button class="conn-action-btn" id="btnToggleRecvCode">
+            <span class="btn-action-icon">🔢</span>
+            <span>Partager code</span>
+          </button>
+          <button class="conn-action-btn" id="btnToggleRecvQR">
+            <span class="btn-action-icon">📱</span>
+            <span>Partager QR Code</span>
+          </button>
+          <button class="conn-action-btn" id="btnRecvScanQR">
+            <span class="btn-action-icon">📷</span>
+            <span>Scanner QR Code</span>
+          </button>
+          <button class="conn-action-btn" id="btnToggleRecvEnter">
+            <span class="btn-action-icon">⌨️</span>
+            <span>Entrer code</span>
+          </button>
         </div>
-        <p class="t-status" id="recvQRStatus">Initialisation…</p>
-      </div>
-
-      <!-- Or: scanner / enter sender's code -->
-      <div class="t-step" id="stepRecvConnect" style="margin-top:16px">
-        <div class="t-step-label">ou scanner le code de l'expéditeur</div>
-        <button class="btn-scan-qr" id="btnRecvScanQR">📷 Scanner le QR code</button>
-        <div class="qr-divider"><span>ou entrez le code</span></div>
-        <div class="code-input-row">
-          <input type="text" id="recvCodeInput" class="code-input"
-            placeholder="K7M2XP" maxlength="6"
-            autocomplete="off" spellcheck="false">
-          <button class="btn-primary" id="btnRecvConnect">Connecter</button>
+        <div class="conn-panel" id="panelRecvCode">
+          <div class="code-display" id="recvCodeDisplay">
+            <div class="code-spinner"></div>
+          </div>
         </div>
-        <div class="qr-scanner-wrap" id="recvQrScannerWrap" style="display:none">
-          <video id="recvQrVideo" autoplay playsinline muted></video>
-          <canvas id="recvQrScanCanvas" style="display:none"></canvas>
-          <button class="btn-stop-scan" id="btnRecvStopScan">✕ Arrêter</button>
+        <div class="conn-panel" id="panelRecvQR">
+          <canvas id="qrCanvas" class="qr-canvas"></canvas>
         </div>
+        <div class="conn-panel" id="panelRecvScan">
+          <div class="qr-scanner-wrap" id="recvQrScannerWrap">
+            <video id="recvQrVideo" autoplay playsinline muted></video>
+            <canvas id="recvQrScanCanvas" style="display:none"></canvas>
+            <button class="btn-stop-scan" id="btnRecvStopScan">✕ Arrêter</button>
+          </div>
+        </div>
+        <div class="conn-panel" id="panelRecvEnter">
+          <div class="code-input-row">
+            <input type="text" id="recvCodeInput" class="code-input"
+              placeholder="K7M2XP" maxlength="6"
+              autocomplete="off" spellcheck="false">
+            <button class="btn-primary" id="btnRecvConnect">Connecter</button>
+          </div>
+        </div>
+        <p class="t-status" id="recvQRStatus" style="margin-top:4px">Initialisation…</p>
         <div class="t-error" id="recvConnectError"></div>
       </div>
 
