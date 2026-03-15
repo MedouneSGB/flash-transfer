@@ -290,6 +290,7 @@ function initSend() {
   resetAll();
 
   // Reset UI
+  showBlock('stepConnect');              // toujours visible au reset
   hide('sendConnStatus');
   hide('btnSend');
   hide('sendProgress');
@@ -300,6 +301,8 @@ function initSend() {
   ['btnToggleSendQR', 'btnScanQR', 'btnToggleSendEnter'].forEach(id => {
     const b = document.getElementById(id); if (b) b.classList.remove('active');
   });
+  const copySendBtn = document.getElementById('btnCopySendCode');
+  if (copySendBtn) copySendBtn.disabled = true;
   const fl = document.getElementById('fileListEl');
   if (fl) fl.innerHTML = '';
   if (document.getElementById('sendCodeInput'))
@@ -538,12 +541,15 @@ function initRecv() {
   showScreen('screenRecv');
   resetAll();
 
+  showBlock('stepRecvConnect');          // toujours visible au reset
   hide('recvConnStatus'); hide('recvProgress'); hide('recvGallery');
   hideError('recvConnectError');
   ['panelRecvQR', 'panelRecvScan', 'panelRecvEnter'].forEach(hide);
   ['btnToggleRecvQR', 'btnRecvScanQR', 'btnToggleRecvEnter'].forEach(id => {
     const b = document.getElementById(id); if (b) b.classList.remove('active');
   });
+  const copyRecvBtn = document.getElementById('btnCopyRecvCode');
+  if (copyRecvBtn) copyRecvBtn.disabled = true;
   if (document.getElementById('recvCodeInput'))
     document.getElementById('recvCodeInput').value = '';
   recvFiles = []; currentRecvIdx = -1;
