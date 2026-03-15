@@ -296,8 +296,8 @@ function initSend() {
   hide('sendDone');
   hideError('fileError');
   hideError('connectError');
-  ['panelSendCode', 'panelSendQR', 'panelSendScan', 'panelSendEnter'].forEach(hide);
-  ['btnToggleSendCode', 'btnToggleSendQR', 'btnScanQR', 'btnToggleSendEnter'].forEach(id => {
+  ['panelSendQR', 'panelSendScan', 'panelSendEnter'].forEach(hide);
+  ['btnToggleSendQR', 'btnScanQR', 'btnToggleSendEnter'].forEach(id => {
     const b = document.getElementById(id); if (b) b.classList.remove('active');
   });
   const fl = document.getElementById('fileListEl');
@@ -315,6 +315,8 @@ function initSend() {
 
   peer.on('open', id => {
     document.getElementById('sendCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
+    const copyBtn = document.getElementById('btnCopySendCode');
+    if (copyBtn) copyBtn.disabled = false;
     generateQRCode(id, 'qrCanvasSend');
   });
 
@@ -538,8 +540,8 @@ function initRecv() {
 
   hide('recvConnStatus'); hide('recvProgress'); hide('recvGallery');
   hideError('recvConnectError');
-  ['panelRecvCode', 'panelRecvQR', 'panelRecvScan', 'panelRecvEnter'].forEach(hide);
-  ['btnToggleRecvCode', 'btnToggleRecvQR', 'btnRecvScanQR', 'btnToggleRecvEnter'].forEach(id => {
+  ['panelRecvQR', 'panelRecvScan', 'panelRecvEnter'].forEach(hide);
+  ['btnToggleRecvQR', 'btnRecvScanQR', 'btnToggleRecvEnter'].forEach(id => {
     const b = document.getElementById(id); if (b) b.classList.remove('active');
   });
   if (document.getElementById('recvCodeInput'))
@@ -560,6 +562,8 @@ function initRecv() {
   peer.on('open', id => {
     setText('recvQRStatus', '⏳ En attente de l\'expéditeur…');
     document.getElementById('recvCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
+    const copyBtn = document.getElementById('btnCopyRecvCode');
+    if (copyBtn) copyBtn.disabled = false;
     generateQRCode(id, 'qrCanvas');
   });
 
@@ -826,13 +830,25 @@ document.addEventListener('DOMContentLoaded', () => {
     stopRecvQRScanner(); resetAll(); showScreen('screenMode');
   });
 
-  // ── Send: conn action grid ──
+  // ── Send: conn action grid (3 boutons) ──
   setupConnActions([
-    { btnId: 'btnToggleSendCode',  panelId: 'panelSendCode' },
     { btnId: 'btnToggleSendQR',    panelId: 'panelSendQR' },
     { btnId: 'btnScanQR',          panelId: 'panelSendScan', onOpen: startQRScanner, onClose: stopQRScanner },
     { btnId: 'btnToggleSendEnter', panelId: 'panelSendEnter' },
   ]);
+
+  // ── Copier code envoi ──
+  document.getElementById('btnCopySendCode').addEventListener('click', () => {
+    const code = document.querySelector('#sendCodeDisplay .code-chars')?.textContent;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'success'))
+      .catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = code; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+        toast('Code copié !', 'success');
+      });
+  });
   document.getElementById('btnStopScan').addEventListener('click', stopQRScanner);
 
   // ── Send: connect to receiver by code ──
@@ -846,13 +862,25 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
 
-  // ── Recv: conn action grid ──
+  // ── Recv: conn action grid (3 boutons) ──
   setupConnActions([
-    { btnId: 'btnToggleRecvCode',  panelId: 'panelRecvCode' },
     { btnId: 'btnToggleRecvQR',    panelId: 'panelRecvQR' },
     { btnId: 'btnRecvScanQR',      panelId: 'panelRecvScan', onOpen: startRecvQRScanner, onClose: stopRecvQRScanner },
     { btnId: 'btnToggleRecvEnter', panelId: 'panelRecvEnter' },
   ]);
+
+  // ── Copier code réception ──
+  document.getElementById('btnCopyRecvCode').addEventListener('click', () => {
+    const code = document.querySelector('#recvCodeDisplay .code-chars')?.textContent;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'success'))
+      .catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = code; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+        toast('Code copié !', 'success');
+      });
+  });
   document.getElementById('btnRecvStopScan').addEventListener('click', stopRecvQRScanner);
 
   // ── Recv: connect to sender by code ──

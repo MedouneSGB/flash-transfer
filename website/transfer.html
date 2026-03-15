@@ -86,29 +86,33 @@
       <!-- Step 2: Connect -->
       <div class="t-step" id="stepConnect" style="margin-top:16px">
         <div class="t-step-label">2 — Connectez-vous au destinataire</div>
-        <div class="conn-actions">
-          <button class="conn-action-btn" id="btnToggleSendCode">
-            <span class="btn-action-icon">🔢</span>
-            <span>Partager code</span>
+
+        <!-- Code toujours visible + bouton copier -->
+        <div class="code-always-row">
+          <div class="code-display" id="sendCodeDisplay">
+            <div class="code-spinner"></div>
+          </div>
+          <button class="btn-copy-code" id="btnCopySendCode" title="Copier le code" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           </button>
+        </div>
+
+        <!-- 3 boutons -->
+        <div class="conn-actions conn-actions-3">
           <button class="conn-action-btn" id="btnToggleSendQR">
             <span class="btn-action-icon">📱</span>
-            <span>Partager QR Code</span>
+            <span>QR Code</span>
           </button>
           <button class="conn-action-btn" id="btnScanQR">
             <span class="btn-action-icon">📷</span>
-            <span>Scanner QR Code</span>
+            <span>Scanner</span>
           </button>
           <button class="conn-action-btn" id="btnToggleSendEnter">
             <span class="btn-action-icon">⌨️</span>
             <span>Entrer code</span>
           </button>
         </div>
-        <div class="conn-panel" id="panelSendCode">
-          <div class="code-display" id="sendCodeDisplay">
-            <div class="code-spinner"></div>
-          </div>
-        </div>
+
         <div class="conn-panel" id="panelSendQR">
           <canvas id="qrCanvasSend" class="qr-canvas"></canvas>
         </div>
@@ -176,29 +180,34 @@
 
       <!-- Connect / Share options -->
       <div class="t-step" id="stepRecvConnect">
-        <div class="conn-actions">
-          <button class="conn-action-btn" id="btnToggleRecvCode">
-            <span class="btn-action-icon">🔢</span>
-            <span>Partager code</span>
+
+        <!-- Code toujours visible + bouton copier -->
+        <div class="code-always-row">
+          <div class="code-display" id="recvCodeDisplay">
+            <div class="code-spinner"></div>
+          </div>
+          <button class="btn-copy-code" id="btnCopyRecvCode" title="Copier le code" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           </button>
+        </div>
+        <p class="t-status" id="recvQRStatus">⏳ Initialisation…</p>
+
+        <!-- 3 boutons -->
+        <div class="conn-actions conn-actions-3">
           <button class="conn-action-btn" id="btnToggleRecvQR">
             <span class="btn-action-icon">📱</span>
-            <span>Partager QR Code</span>
+            <span>QR Code</span>
           </button>
           <button class="conn-action-btn" id="btnRecvScanQR">
             <span class="btn-action-icon">📷</span>
-            <span>Scanner QR Code</span>
+            <span>Scanner</span>
           </button>
           <button class="conn-action-btn" id="btnToggleRecvEnter">
             <span class="btn-action-icon">⌨️</span>
             <span>Entrer code</span>
           </button>
         </div>
-        <div class="conn-panel" id="panelRecvCode">
-          <div class="code-display" id="recvCodeDisplay">
-            <div class="code-spinner"></div>
-          </div>
-        </div>
+
         <div class="conn-panel" id="panelRecvQR">
           <canvas id="qrCanvas" class="qr-canvas"></canvas>
         </div>
@@ -217,7 +226,6 @@
             <button class="btn-primary" id="btnRecvConnect">Connecter</button>
           </div>
         </div>
-        <p class="t-status" id="recvQRStatus" style="margin-top:4px">Initialisation…</p>
         <div class="t-error" id="recvConnectError"></div>
       </div>
 

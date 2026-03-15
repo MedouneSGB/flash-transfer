@@ -719,10 +719,34 @@ img, svg { display: block; }
 /* ═══════════════════════════════════════════
    CONNECTION ACTION GRID
    ═══════════════════════════════════════════ */
+/* Code toujours visible + bouton copier */
+.code-always-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.code-always-row .code-display {
+  flex: 1;
+}
+.btn-copy-code {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  background: var(--surface-2); border: 1.5px solid var(--border);
+  border-radius: 10px; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all var(--ease);
+}
+.btn-copy-code:not(:disabled):hover {
+  border-color: var(--primary); color: var(--primary);
+  background: rgba(245,158,11,.08);
+}
+.btn-copy-code:disabled { opacity: .35; cursor: default; }
+
 .conn-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.conn-actions-3 {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 .conn-action-btn {
   display: flex; flex-direction: column;
