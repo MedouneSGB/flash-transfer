@@ -57,7 +57,9 @@ let totalRecvBytes    = 0;
 // ── Utilities ───────────────────────────────
 function genCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 6 }, () => chars[Math.random() * chars.length | 0]).join('');
+  const arr = new Uint8Array(6);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => chars[b % chars.length]).join('');
 }
 
 function fmtSize(b) {
@@ -704,7 +706,14 @@ function updateRecvProgress() {
 // ═══════════════════════════════════════════
 //  FILE GALLERY (receive)
 // ═══════════════════════════════════════════
+// Track ObjectURLs to revoke them on cleanup
+let activeObjectURLs = [];
+
 function showFileGallery() {
+  // Revoke any previously created ObjectURLs
+  activeObjectURLs.forEach(u => URL.revokeObjectURL(u));
+  activeObjectURLs = [];
+
   const n = recvFiles.filter(Boolean).length;
   setText('galleryCount', `✅ ${n} fichier${n > 1 ? 's' : ''} reçu${n > 1 ? 's' : ''} !`);
   const list = document.getElementById('galleryList');
@@ -717,6 +726,7 @@ function createGalleryItem(fi, i) {
   const { meta, blob } = fi;
   const icon   = fileIcon(meta.name, meta.mime);
   const objUrl = URL.createObjectURL(blob);
+  activeObjectURLs.push(objUrl);
   const prev   = canPreview(meta.mime);
 
   const div = document.createElement('div');
