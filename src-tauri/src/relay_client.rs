@@ -144,7 +144,15 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                 Some(Ok(Message::Text(text))) => {
                                     // Metadata: {"name":"file.txt","size":12345}
                                     if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&text) {
-                                        file_name = meta["name"].as_str().unwrap_or("received_file").to_string();
+                                        let raw_name = meta["name"].as_str().unwrap_or("received_file").to_string();
+                                        // SECURITY: Sanitize file name to prevent path traversal
+                                        file_name = std::path::Path::new(&raw_name)
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| "received_file".to_string());
+                                        if file_name.is_empty() || file_name == "." || file_name == ".." {
+                                            file_name = "received_file".to_string();
+                                        }
                                         file_size = meta["size"].as_u64().unwrap_or(0);
                                         let path = save_dir.join(&file_name);
                                         out_file = tokio::fs::OpenOptions::new()

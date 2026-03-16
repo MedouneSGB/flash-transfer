@@ -411,6 +411,12 @@ async fn handle_incoming(
     stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
     let file_size = u64::from_be_bytes(buf8);
 
+    // SECURITY: Reject files larger than 100 GB to prevent disk exhaustion
+    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024 * 1024; // 100 GB
+    if file_size > MAX_FILE_SIZE {
+        return Err(format!("File too large: {} bytes (max {} bytes)", file_size, MAX_FILE_SIZE));
+    }
+
     stream.read_exact(&mut buf4).await.map_err(|e| e.to_string())?;
     let name_len = u32::from_be_bytes(buf4) as usize;
 
@@ -423,9 +429,25 @@ async fn handle_incoming(
     stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
     let length = u64::from_be_bytes(buf8);
 
+    if name_len > 1024 {
+        return Err("File name too long (>1024 bytes)".to_string());
+    }
     let mut name_buf = vec![0u8; name_len];
     stream.read_exact(&mut name_buf).await.map_err(|e| e.to_string())?;
-    let file_name = String::from_utf8_lossy(&name_buf).to_string();
+    let raw_name = String::from_utf8_lossy(&name_buf).to_string();
+
+    // SECURITY: Sanitize file name to prevent path traversal attacks.
+    // Strip any directory components — only keep the final file name.
+    let file_name = std::path::Path::new(&raw_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| format!("received_{}", now_ms()));
+    // Reject empty or dot-only names
+    let file_name = if file_name.is_empty() || file_name == "." || file_name == ".." {
+        format!("received_{}", now_ms())
+    } else {
+        file_name
+    };
 
     // ── Register in global tracker (emit receive-start on first chunk) ───
     let bytes_arc = {

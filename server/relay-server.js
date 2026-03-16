@@ -13,6 +13,9 @@ const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
 
 const PORT = process.env.PORT || 8765;
+const MAX_ROOMS = 500;           // Limit total active rooms
+const MAX_CONNECTIONS_PER_IP = 5; // Rate limit per IP
+const ipConnections = new Map();  // ip → count
 
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
@@ -24,7 +27,7 @@ const server = http.createServer((req, res) => {
   res.end('Flash⚡Transfer Relay Server');
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message
 
 // rooms: Map<code, { sender: WebSocket|null, receiver: WebSocket|null }>
 const rooms = new Map();
@@ -43,12 +46,41 @@ setInterval(() => {
 }, 60 * 1000);
 
 wss.on('connection', (ws, req) => {
+  // Rate limiting by IP
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  const currentCount = ipConnections.get(clientIp) || 0;
+  if (currentCount >= MAX_CONNECTIONS_PER_IP) {
+    ws.send(JSON.stringify({ error: 'Too many connections from this IP' }));
+    ws.close();
+    return;
+  }
+  ipConnections.set(clientIp, currentCount + 1);
+  ws.on('close', () => {
+    const c = ipConnections.get(clientIp) || 1;
+    if (c <= 1) ipConnections.delete(clientIp);
+    else ipConnections.set(clientIp, c - 1);
+  });
+
   const url = new URL(req.url, `http://localhost`);
   const code = url.searchParams.get('code');
   const role = url.searchParams.get('role'); // 'sender' | 'receiver'
 
-  if (!code || !role) {
-    ws.send(JSON.stringify({ error: 'Missing code or role' }));
+  if (!code || !role || !['sender', 'receiver'].includes(role)) {
+    ws.send(JSON.stringify({ error: 'Missing or invalid code/role' }));
+    ws.close();
+    return;
+  }
+
+  // Validate code format (alphanumeric, 4-12 chars)
+  if (!/^[a-zA-Z0-9]{4,12}$/.test(code)) {
+    ws.send(JSON.stringify({ error: 'Invalid code format' }));
+    ws.close();
+    return;
+  }
+
+  // Limit total rooms
+  if (!rooms.has(code) && rooms.size >= MAX_ROOMS) {
+    ws.send(JSON.stringify({ error: 'Server at capacity, try again later' }));
     ws.close();
     return;
   }

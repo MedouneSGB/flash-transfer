@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://jmbnkvojjedejnibojiu.supabase.co https://api.ipify.org wss://flash-transfer-7vj7.onrender.com; img-src 'self' https://www.gstatic.com https://*.googleusercontent.com data: blob:; font-src 'self'"
     }
   },
   "bundle": {

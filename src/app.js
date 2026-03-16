@@ -93,7 +93,7 @@ function toast(msg, type = 'info', ms = 4000) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   const icons = { success:'✅', error:'❌', info:'⚡' };
-  el.innerHTML = `<span>${icons[type]||'⚡'}</span><span>${msg}</span>`;
+  el.innerHTML = `<span>${icons[type]||'⚡'}</span><span>${escapeHtml(msg)}</span>`;
   c.appendChild(el);
   setTimeout(() => {
     el.style.cssText += 'opacity:0;transform:translateX(120%);transition:all .2s';
@@ -258,11 +258,11 @@ function renderPeers() {
 
   list.innerHTML = state.peers.map(p => `
     <div class="peer-card${state.selectedPeer?.ip === p.ip ? ' selected' : ''}"
-         data-ip="${p.ip}" data-name="${p.name}">
+         data-ip="${escapeHtml(p.ip)}" data-name="${escapeAttr(p.name)}">
       <div class="peer-avatar">💻</div>
       <div>
-        <div class="peer-name">${p.name}</div>
-        <div class="peer-ip">${p.ip}</div>
+        <div class="peer-name">${escapeHtml(p.name)}</div>
+        <div class="peer-ip">${escapeHtml(p.ip)}</div>
       </div>
       <div class="peer-online"></div>
     </div>`).join('');
@@ -1018,6 +1018,10 @@ document.getElementById('btnSendIp').addEventListener('click', async () => {
   const ip = document.getElementById('destIpInput').value.trim();
   if (!state.selectedFileIp) { toast('Sélectionne un fichier', 'error'); return; }
   if (!ip) { toast("Entre l'IP du destinataire", 'error'); return; }
+  // Validate IP format (IPv4 only)
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+    toast('Format IP invalide (ex: 192.168.1.42)', 'error'); return;
+  }
 
   const f = state.selectedFileIp;
   const files = [{ name: f.name, size: f.size }];

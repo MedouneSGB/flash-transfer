@@ -81,11 +81,20 @@ p{{color:#aaa;font-size:15px}}</style></head>
 /// Ouvre une URL dans le navigateur système (multi-plateforme)
 #[tauri::command]
 pub async fn open_browser_url(url: String) -> Result<(), String> {
+    // SECURITY: Validate URL to prevent command injection.
+    // Only allow http/https URLs.
+    let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("Blocked URL scheme: {}", scheme)),
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
+        // Use rundll32 instead of cmd /C start to avoid shell metacharacter injection
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", &url])
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|e| e.to_string())?;
