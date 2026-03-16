@@ -122,7 +122,7 @@ Tous les transferts TCP (ports 45679/45680) sont en clair. Sur un reseau comprom
 | P1 | ~~CSPRNG codes~~ | ✅ Fait |
 | P1 | ~~Rate limiting relay~~ | ✅ Fait |
 | P2 | Chiffrement TLS LAN | Non implemente (complexe) |
-| P2 | ~~SRI pour PeerJS CDN~~ | ✅ Fait |
+| P2 | SRI pour PeerJS CDN | En attente (hash a verifier manuellement) |
 | P2 | ~~Checksums SHA-256 fichiers~~ | ✅ Fait |
 | P2 | ~~Validation chemins open_file/open_folder~~ | ✅ Fait |
 | P2 | ~~Limitation connexions TCP (semaphore)~~ | ✅ Fait |
