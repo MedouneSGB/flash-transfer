@@ -1,13 +1,21 @@
 'use strict';
 
 // ═══════════════════════════════════════════
-//  Flash Transfer — Web Transfer (WebSocket Relay)
+//  Flash Transfer — Web Transfer (PeerJS)
 //
-//  Compatible with the Tauri desktop app.
-//  Both use the same relay server + protocol.
+//  2 modes:
+//   send — select files, then connect to receiver (scan/code)
+//   recv — show own QR/code, and/or scan sender's QR/code
 // ═══════════════════════════════════════════
 
-const RELAY_URL = 'wss://flash-transfer-7vj7.onrender.com';
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+  ],
+};
 
 const ACCEPTED_MIME = new Set([
   'text/plain',
@@ -21,28 +29,34 @@ const ACCEPTED_MIME = new Set([
 ]);
 const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg'];
 const MAX_BYTES    = 25 * 1024 * 1024;
-const CHUNK_SIZE   = 256 * 1024; // 256KB — matches Tauri app
+const CHUNK_SIZE   = 64 * 1024;
 
 // ── State ──────────────────────────────────
-let ws        = null;
+let peer      = null;
+let conn      = null;
 let mode      = null;  // 'send' | 'recv'
-let myCode    = '';
 
 // Send side
+let peerReady      = false;
 let sendStarted    = false;
 let selectedFiles  = [];
+let sendQueue      = [];
+let currentSendIdx = 0;
+let totalSendBytes = 0;
+let sentBytes      = 0;
+let tSendStart     = 0;
 
 // Receive side
+let connectedOnce     = false;
 let recvFiles         = [];
-let recvFileName      = '';
-let recvFileSize      = 0;
-let recvChunks        = [];
-let recvBytes         = 0;
-let recvStart         = 0;
+let currentRecvIdx    = -1;
+let totalRecvExpected = 0;
+let totalRecvSize     = 0;
+let totalRecvBytes    = 0;
 
 // ── Utilities ───────────────────────────────
 function genCode() {
-  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const arr = new Uint8Array(6);
   crypto.getRandomValues(arr);
   return Array.from(arr, b => chars[b % chars.length]).join('');
@@ -62,9 +76,9 @@ function fmtSpeed(bps) {
 
 function fileIcon(name, mime) {
   if (mime === 'application/pdf'  || name.endsWith('.pdf'))   return '📄';
-  if (mime?.includes('word')      || /\.docx?$/.test(name))   return '📝';
-  if (mime?.includes('excel')     || /\.xlsx?$/.test(name))   return '📊';
-  if (/^image\//.test(mime))                                   return '🖼️';
+  if (mime.includes('word')       || /\.docx?$/.test(name))  return '📝';
+  if (mime.includes('excel')      || /\.xlsx?$/.test(name))  return '📊';
+  if (/^image\//.test(mime))                                  return '🖼️';
   if (mime === 'text/plain'       || name.endsWith('.txt'))   return '📃';
   return '📁';
 }
@@ -124,22 +138,23 @@ function hideError(id) {
 }
 
 // ── Teardown ────────────────────────────────
-function closeWs() {
-  if (ws) {
-    try { ws.close(); } catch (_) {}
-    ws = null;
-  }
+function destroyPeer() {
+  peerReady = false; sendStarted = false; connectedOnce = false;
+  try { if (conn) conn.close(); } catch (_) {}
+  try { if (peer) peer.destroy(); } catch (_) {}
+  conn = null; peer = null;
 }
 
 function resetAll() {
-  closeWs();
+  destroyPeer();
+  // Close relay WebSocket if active
+  if (typeof closeRelay === 'function') closeRelay();
   stopQRScanner();
   stopRecvQRScanner();
-  selectedFiles = [];
-  sendStarted = false;
-  recvFiles = []; recvFileName = ''; recvFileSize = 0;
-  recvChunks = []; recvBytes = 0;
-  myCode = '';
+  selectedFiles = []; sendQueue = []; currentSendIdx = 0;
+  totalSendBytes = 0; sentBytes = 0;
+  recvFiles = []; currentRecvIdx = -1;
+  totalRecvExpected = 0; totalRecvSize = 0; totalRecvBytes = 0;
 }
 
 // ═══════════════════════════════════════════
@@ -198,12 +213,13 @@ function scanQRFrame(video, canvas) {
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
   if (code && code.data) {
-    const text = code.data.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (text.length === 6) {
+    const text = code.data.trim();
+    const clean = text.replace(/[^a-zA-Z0-9]/g, '');
+    if (clean.length >= 4 && clean.length <= 12) {
       stopQRScanner();
-      document.getElementById('sendCodeInput').value = text;
-      toast('QR scanné : ' + text, 'success');
-      connectToReceiver(text);
+      document.getElementById('sendCodeInput').value = clean;
+      toast('QR scanné : ' + clean, 'success');
+      connectToOther(clean);
       return;
     }
   }
@@ -250,12 +266,13 @@ function scanRecvQRFrame(video, canvas) {
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
   if (code && code.data) {
-    const text = code.data.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (text.length === 6) {
+    const text = code.data.trim();
+    const clean = text.replace(/[^a-zA-Z0-9]/g, '');
+    if (clean.length >= 4 && clean.length <= 12) {
       stopRecvQRScanner();
-      document.getElementById('recvCodeInput').value = text;
-      toast('QR scanné : ' + text, 'success');
-      connectToSender(text);
+      document.getElementById('recvCodeInput').value = clean;
+      toast('QR scanné : ' + clean, 'success');
+      connectToOtherAsRecv(clean);
       return;
     }
   }
@@ -278,7 +295,8 @@ function initSend() {
   showScreen('screenSend');
   resetAll();
 
-  showBlock('stepConnect');
+  // Reset UI
+  showBlock('stepConnect');              // toujours visible au reset
   hide('sendConnStatus');
   hide('btnSend');
   hide('sendProgress');
@@ -295,104 +313,119 @@ function initSend() {
   if (fl) fl.innerHTML = '';
   if (document.getElementById('sendCodeInput'))
     document.getElementById('sendCodeInput').value = '';
-  selectedFiles = []; sendStarted = false;
+  selectedFiles = []; sendQueue = []; sendStarted = false; peerReady = false;
   updateSendBtn();
 
-  // Generate code and connect to relay as sender
-  myCode = genCode();
+  // Initialise peer (QR + code générés en arrière-plan, visibles via panneaux)
+  const myCode = genCode();
   document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
 
-  ws = new WebSocket(`${RELAY_URL}/ws?code=${myCode}&role=sender`);
-  ws.binaryType = 'arraybuffer';
+  peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
-  ws.onopen = () => {
-    document.getElementById('sendCodeDisplay').innerHTML =
-      `<span class="code-chars">${myCode.toUpperCase()}</span>`;
+  peer.on('open', id => {
+    document.getElementById('sendCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
     const copyBtn = document.getElementById('btnCopySendCode');
     if (copyBtn) copyBtn.disabled = false;
-    generateQRCode(myCode, 'qrCanvasSend');
-  };
+    generateQRCode(id, 'qrCanvasSend');
+  });
 
-  ws.onmessage = (event) => {
-    if (typeof event.data === 'string') {
-      if (event.data === 'PEER_CONNECTED') {
-        onSendConnected();
-      } else if (event.data === 'PEER_DISCONNECTED') {
-        if (!sendStarted) {
-          toast('Le destinataire s\'est déconnecté.');
-        }
+  // Receiver may connect to us
+  peer.on('connection', c => {
+    if (connectedOnce) { try { c.close(); } catch (_) {} return; }
+    connectedOnce = true;
+    conn = c;
+    onSendConnected();
+    c.on('close', () => {
+      if (!sendStarted) {
+        peerReady = false; connectedOnce = false; conn = null;
+        updateSendBtn(); showBlock('stepConnect'); hide('btnSend');
+        toast('Connexion fermée.');
       }
-    }
-  };
+    });
+    c.on('error', e => {
+      toast('Erreur connexion : ' + e.message);
+      if (!sendStarted) {
+        peerReady = false; connectedOnce = false; conn = null;
+        updateSendBtn(); showBlock('stepConnect'); hide('btnSend');
+      }
+    });
+  });
 
-  ws.onerror = () => {
-    toast('Erreur de connexion au serveur relay.');
-    document.getElementById('sendCodeDisplay').innerHTML =
-      '<span style="color:var(--error-c);font-size:.9rem">Erreur relay</span>';
-  };
+  peer.on('disconnected', () => {
+    if (peer && !peer.destroyed) peer.reconnect();
+  });
 
-  ws.onclose = () => {
-    if (!sendStarted) {
-      // Allow reconnect by re-init
+  peer.on('error', err => {
+    if (err.type === 'unavailable-id') { destroyPeer(); initSend(); }
+    else if (err.type === 'peer-unavailable') {
+      toast('Destinataire introuvable. Vérifiez le code.');
+      hide('sendConnStatus');
+      hideError('connectError');
+    } else {
+      toast('Erreur PeerJS : ' + err.message);
     }
-  };
+  });
 }
 
-// Sender connects to a receiver's code (sender joins receiver's room)
-function connectToReceiver(rawCode) {
-  const code = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (code.length < 4) { showError('connectError', 'Code invalide (min 4 caractères).'); return; }
+// Sender initiates connection to receiver
+function connectToOther(rawCode) {
+  // Relay code detection: Tauri codes contain only lowercase letters + digits
+  // PeerJS codes contain only uppercase letters + digits
+  const trimmed = rawCode.trim();
+  if (/^[a-z0-9]{4,12}$/.test(trimmed)) {
+    relaySendTo(trimmed);
+    return;
+  }
+  const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 6) { showError('connectError', 'Code invalide (6 caractères attendus).'); return; }
+  if (!peer) return;
 
-  // Close existing connection and join the receiver's room as sender
-  closeWs();
+  if (peer.disconnected) {
+    peer.reconnect();
+    setTimeout(() => connectToOther(rawCode), 800);
+    return;
+  }
 
   showFlex('sendConnStatus');
   setText('sendConnText', 'Connexion en cours…');
   hideError('connectError');
 
-  ws = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=sender`);
-  ws.binaryType = 'arraybuffer';
-  myCode = code;
+  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
 
-  ws.onopen = () => {
-    // If the receiver is already there, relay will send PEER_CONNECTED
-    // Otherwise we wait
-  };
-
-  ws.onmessage = (event) => {
-    if (typeof event.data === 'string') {
-      if (event.data === 'PEER_CONNECTED') {
-        hide('sendConnStatus');
-        onSendConnected();
-        toast('Destinataire connecté !', 'success');
-      } else if (event.data === 'PEER_DISCONNECTED') {
-        if (!sendStarted) {
-          toast('Le destinataire s\'est déconnecté.');
-          hide('sendConnStatus');
-          showBlock('stepConnect');
-        }
-      }
-    }
-  };
-
-  ws.onerror = () => {
-    toast('Impossible de se connecter au relay.');
+  conn.on('open', () => {
     hide('sendConnStatus');
-  };
+    onSendConnected();
+    toast('Destinataire connecté !', 'success');
+  });
+  conn.on('close', () => {
+    if (!sendStarted) {
+      peerReady = false; conn = null;
+      hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
+      toast('Connexion fermée par le destinataire.');
+    }
+  });
+  conn.on('error', e => {
+    toast('Erreur : ' + e.message);
+    peerReady = false; conn = null;
+    hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
+  });
 
   setTimeout(() => {
-    if (ws && ws.readyState === WebSocket.OPEN && !sendStarted) {
-      // Still waiting — the receiver might not be there yet, that's ok
+    if (conn && !conn.open && !peerReady) {
+      toast('Délai dépassé. Vérifiez le code.');
+      hide('sendConnStatus');
     }
-  }, 15000);
+  }, 10000);
 }
 
 function onSendConnected() {
+  peerReady = true;
   hide('sendConnStatus');
   hide('stepConnect');
   stopQRScanner();
   showBlock('btnSend');
   updateSendBtn();
+  toast('Destinataire connecté !', 'success');
 }
 
 // ── File selection ──────────────────────────
@@ -437,64 +470,80 @@ function renderFileList() {
 function updateSendBtn() {
   const btn = document.getElementById('btnSend');
   if (!btn) return;
-  const connected = ws && ws.readyState === WebSocket.OPEN;
-  btn.disabled = !(connected && selectedFiles.length > 0 && !sendStarted);
+  btn.disabled = !(peerReady && selectedFiles.length > 0 && !sendStarted);
   const n = selectedFiles.length;
   btn.textContent = n <= 1
     ? `Envoyer${n === 1 ? ' 1 fichier' : ''} ⚡`
     : `Envoyer ${n} fichiers ⚡`;
 }
 
-// ── Send logic (one file at a time via relay) ──
-async function doSend() {
-  if (!ws || selectedFiles.length === 0 || sendStarted) return;
+// ── Send logic ──────────────────────────────
+function doSend() {
+  if (!conn || selectedFiles.length === 0 || !peerReady || sendStarted) return;
   sendStarted = true;
   const btn = document.getElementById('btnSend');
   if (btn) btn.disabled = true;
 
+  sendQueue      = [...selectedFiles];
+  totalSendBytes = sendQueue.reduce((s, f) => s + f.size, 0);
+  sentBytes      = 0;
+  currentSendIdx = 0;
+  tSendStart     = Date.now();
+
   const pb = document.getElementById('sendProgress');
   pb.style.display = 'flex'; pb.classList.add('show');
 
-  const totalFiles = selectedFiles.length;
-  let totalSentBytes = 0;
-  const totalAllBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
-  const tStart = Date.now();
+  conn.send(JSON.stringify({ __ft: 'count', total: sendQueue.length, totalBytes: totalSendBytes }));
+  sendNextFile();
+}
 
-  for (let fi = 0; fi < totalFiles; fi++) {
-    const file = selectedFiles[fi];
-
-    // Send metadata as JSON text — matches Tauri protocol
-    ws.send(JSON.stringify({ name: file.name, size: file.size }));
-
-    // Stream file in chunks
-    let offset = 0;
-    while (offset < file.size) {
-      const end = Math.min(offset + CHUNK_SIZE, file.size);
-      const chunk = file.slice(offset, end);
-      const buf = await chunk.arrayBuffer();
-      ws.send(buf);
-      offset = end;
-      totalSentBytes += buf.byteLength;
-
-      // Update progress
-      const pct = Math.min(100, Math.round(totalSentBytes / totalAllBytes * 100));
-      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
-      setText('sendProgPct', pct + '%');
-      document.getElementById('sendProgFill').style.width = pct + '%';
-      setText('sendProgLabel', `Fichier ${fi + 1}/${totalFiles} — ${file.name}`);
-      setText('sendProgSub', `${fmtSize(totalSentBytes)} / ${fmtSize(totalAllBytes)}  ·  ${fmtSpeed(totalSentBytes / elapsed)}`);
-
-      // Small yield to keep UI responsive
-      if (offset < file.size) {
-        await new Promise(r => setTimeout(r, 0));
-      }
-    }
+function sendNextFile() {
+  if (currentSendIdx >= sendQueue.length) {
+    conn.send(JSON.stringify({ __ft: 'all-done' }));
+    hide('sendProgress');
+    const n = sendQueue.length;
+    setText('sendDoneName', `${n} fichier${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} avec succès !`);
+    showFlex('sendDone');
+    return;
   }
 
-  hide('sendProgress');
-  const n = totalFiles;
-  setText('sendDoneName', `${n} fichier${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} avec succès !`);
-  showFlex('sendDone');
+  const file = sendQueue[currentSendIdx];
+  conn.send(JSON.stringify({
+    __ft: 'meta',
+    name: file.name, size: file.size, mime: file.type,
+    index: currentSendIdx, total: sendQueue.length,
+  }));
+
+  let offset = 0;
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    try { conn.send(e.target.result); }
+    catch (err) { toast('Erreur envoi : ' + err.message); return; }
+    const bytes = e.target.result.byteLength;
+    offset    += bytes;
+    sentBytes += bytes;
+    updateSendProgress(file);
+    if (offset < file.size) {
+      reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK_SIZE));
+    } else {
+      conn.send(JSON.stringify({ __ft: 'done', index: currentSendIdx }));
+      currentSendIdx++;
+      setTimeout(sendNextFile, 0);
+    }
+  };
+
+  reader.onerror = () => toast('Erreur de lecture du fichier.');
+  reader.readAsArrayBuffer(file.slice(0, CHUNK_SIZE));
+}
+
+function updateSendProgress(file) {
+  const pct     = Math.min(100, Math.round(sentBytes / totalSendBytes * 100));
+  const elapsed = (Date.now() - tSendStart) / 1000 || 0.001;
+  setText('sendProgPct',   pct + '%');
+  document.getElementById('sendProgFill').style.width = pct + '%';
+  setText('sendProgLabel', `Fichier ${currentSendIdx + 1}/${sendQueue.length} — ${file.name}`);
+  setText('sendProgSub',   `${fmtSize(sentBytes)} / ${fmtSize(totalSendBytes)}  ·  ${fmtSpeed(sentBytes / elapsed)}`);
 }
 
 // ═══════════════════════════════════════════
@@ -505,7 +554,7 @@ function initRecv() {
   showScreen('screenRecv');
   resetAll();
 
-  showBlock('stepRecvConnect');
+  showBlock('stepRecvConnect');          // toujours visible au reset
   hide('recvConnStatus'); hide('recvProgress'); hide('recvGallery');
   hideError('recvConnectError');
   ['panelRecvQR', 'panelRecvScan', 'panelRecvEnter'].forEach(hide);
@@ -516,191 +565,174 @@ function initRecv() {
   if (copyRecvBtn) copyRecvBtn.disabled = true;
   if (document.getElementById('recvCodeInput'))
     document.getElementById('recvCodeInput').value = '';
-  recvFiles = []; recvFileName = ''; recvFileSize = 0;
-  recvChunks = []; recvBytes = 0;
+  recvFiles = []; currentRecvIdx = -1;
+  totalRecvExpected = 0; totalRecvSize = 0; totalRecvBytes = 0;
   setText('recvProgPct', '0%');
   document.getElementById('recvProgFill').style.width = '0';
   document.getElementById('galleryList').innerHTML    = '';
 
-  // Generate code and connect as receiver
-  myCode = genCode();
+  // Initialise peer (QR + code générés en arrière-plan, visibles via panneaux)
+  const myCode = genCode();
   document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
-  setText('recvQRStatus', 'Connexion au relay…');
+  setText('recvQRStatus', 'Initialisation…');
 
-  ws = new WebSocket(`${RELAY_URL}/ws?code=${myCode}&role=receiver`);
-  ws.binaryType = 'arraybuffer';
+  peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
-  ws.onopen = () => {
-    setText('recvQRStatus', 'En attente de l\'expéditeur…');
-    document.getElementById('recvCodeDisplay').innerHTML =
-      `<span class="code-chars">${myCode.toUpperCase()}</span>`;
+  peer.on('open', id => {
+    setText('recvQRStatus', '⏳ En attente de l\'expéditeur…');
+    document.getElementById('recvCodeDisplay').innerHTML = `<span class="code-chars">${myCode}</span>`;
     const copyBtn = document.getElementById('btnCopyRecvCode');
     if (copyBtn) copyBtn.disabled = false;
-    generateQRCode(myCode, 'qrCanvas');
-  };
+    generateQRCode(id, 'qrCanvas');
+  });
 
-  ws.onmessage = (event) => handleRecvMessage(event);
+  // Sender may connect to us
+  peer.on('connection', c => {
+    if (connectedOnce) { try { c.close(); } catch (_) {} return; }
+    connectedOnce = true;
+    conn = c;
+    setupRecvConn(c);
+  });
 
-  ws.onerror = () => {
-    toast('Erreur de connexion au relay.');
-    setText('recvQRStatus', 'Erreur — rechargez la page.');
-  };
+  peer.on('disconnected', () => {
+    if (peer && !peer.destroyed) peer.reconnect();
+  });
 
-  ws.onclose = () => {
-    if (recvBytes > 0 && recvBytes >= recvFileSize) return; // normal close after transfer
-    // Unexpected close
-  };
+  peer.on('error', err => {
+    if (err.type === 'unavailable-id') { destroyPeer(); initRecv(); }
+    else if (err.type === 'peer-unavailable') {
+      toast('Expéditeur introuvable. Vérifiez le code.');
+      hide('recvConnStatus');
+      showBlock('stepRecvConnect');
+      hideError('recvConnectError');
+    } else {
+      toast('Erreur : ' + err.message);
+    }
+  });
 }
 
-// Receiver connects to a sender's code
-function connectToSender(rawCode) {
-  const code = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (code.length < 4) { showError('recvConnectError', 'Code invalide (min 4 caractères).'); return; }
+// Receiver initiates connection to sender
+function connectToOtherAsRecv(rawCode) {
+  // Relay code detection: Tauri codes are lowercase
+  const trimmed = rawCode.trim();
+  if (/^[a-z0-9]{4,12}$/.test(trimmed)) {
+    relayReceiveFrom(trimmed);
+    return;
+  }
+  const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 6) { showError('recvConnectError', 'Code invalide (6 caractères attendus).'); return; }
+  if (!peer) return;
 
-  closeWs();
+  if (peer.disconnected) {
+    peer.reconnect();
+    setTimeout(() => connectToOtherAsRecv(rawCode), 800);
+    return;
+  }
+
   hide('stepRecvConnect');
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⏳');
   setText('recvConnText', 'Connexion en cours…');
   hideError('recvConnectError');
 
-  ws = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=receiver`);
-  ws.binaryType = 'arraybuffer';
-  myCode = code;
+  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
 
-  ws.onopen = () => {
-    setText('recvConnIcon', '⚡');
-    setText('recvConnText', 'Connecté — en attente des fichiers…');
-  };
-
-  ws.onmessage = (event) => handleRecvMessage(event);
-
-  ws.onerror = () => {
-    toast('Impossible de se connecter au relay.');
+  conn.on('open', () => setupRecvConn(conn));
+  conn.on('error', e => {
+    toast('Erreur : ' + e.message);
     showBlock('stepRecvConnect'); hide('recvConnStatus');
-  };
+  });
 
   setTimeout(() => {
-    if (ws && ws.readyState === WebSocket.OPEN && recvBytes === 0 && recvFileSize === 0) {
-      // Still waiting — normal, sender may not have started yet
+    if (conn && !conn.open && totalRecvBytes === 0) {
+      toast('Délai dépassé. Vérifiez le code.');
+      showBlock('stepRecvConnect'); hide('recvConnStatus');
     }
-  }, 15000);
+  }, 10000);
 }
 
-function handleRecvMessage(event) {
-  if (typeof event.data === 'string') {
-    // Control messages or JSON metadata
-    if (event.data === 'PEER_CONNECTED') {
-      hide('stepRecvConnect');
-      stopRecvQRScanner();
-      showFlex('recvConnStatus');
-      setText('recvConnIcon', '⚡');
-      setText('recvConnText', 'Connecté — en attente des fichiers…');
-      return;
-    }
-    if (event.data === 'PEER_DISCONNECTED') {
-      if (recvFileSize > 0 && recvBytes >= recvFileSize) return;
-      // If we received files, show gallery anyway
-      if (recvFiles.length > 0) {
-        hide('recvProgress');
-        showFileGallery();
-        return;
-      }
-      toast('L\'expéditeur s\'est déconnecté.');
-      return;
-    }
+function setupRecvConn(c) {
+  hide('stepRecvConnect');
+  stopRecvQRScanner();
+  showFlex('recvConnStatus');
+  setText('recvConnIcon', '⚡');
+  setText('recvConnText', 'Connecté — en attente des fichiers…');
 
-    // Try parsing as JSON metadata — Tauri protocol: {"name":"file.txt","size":12345}
-    try {
-      const meta = JSON.parse(event.data);
-      if (meta.name && meta.size !== undefined) {
-        // If we had a previous file in progress, finalize it
-        if (recvFileName && recvChunks.length > 0) {
-          finalizeRecvFile();
-        }
+  c.on('data',  data => handleRecvData(data));
+  c.on('close', () => {
+    if (totalRecvSize > 0 && totalRecvBytes >= totalRecvSize) return;
+    toast('L\'expéditeur s\'est déconnecté.');
+  });
+  c.on('error', e => toast('Erreur connexion : ' + e.message));
+}
 
-        recvFileName = meta.name;
-        recvFileSize = meta.size;
-        recvChunks   = [];
-        recvBytes    = 0;
-        recvStart    = Date.now();
+function handleRecvData(data) {
+  if (typeof data === 'string') {
+    let msg;
+    try { msg = JSON.parse(data); } catch (_) { return; }
 
-        hide('recvConnStatus');
-        showFlex('recvProgress');
-        setText('recvProgLabel', `Réception — ${meta.name}`);
-        setText('recvProgPct', '0%');
-        document.getElementById('recvProgFill').style.width = '0';
-      }
-    } catch (_) {
-      // Not JSON, ignore
-    }
+    if (msg.__ft === 'count') {
+      totalRecvExpected = msg.total;
+      totalRecvSize     = msg.totalBytes || 0;
+      hide('recvConnStatus');
+      showFlex('recvProgress');
+      setText('recvProgLabel', 'Réception en cours…');
 
-  } else {
-    // Binary data — file chunk
-    if (!recvFileName) return;
+    } else if (msg.__ft === 'meta') {
+      currentRecvIdx = msg.index;
+      recvFiles[currentRecvIdx] = { meta: msg, chunks: [], bytes: 0, blob: null };
+      setText('recvProgLabel', `Fichier ${msg.index + 1}/${msg.total} — ${msg.name}`);
 
-    const buf = event.data;
-    recvChunks.push(buf);
-    recvBytes += buf.byteLength;
+    } else if (msg.__ft === 'done') {
+      const fi = recvFiles[msg.index];
+      if (fi) fi.blob = new Blob(fi.chunks, { type: fi.meta.mime || 'application/octet-stream' });
 
-    // Update progress
-    const pct = Math.min(100, Math.round(recvBytes / (recvFileSize || 1) * 100));
-    const elapsed = (Date.now() - recvStart) / 1000 || 0.001;
-    setText('recvProgPct', pct + '%');
-    document.getElementById('recvProgFill').style.width = pct + '%';
-    setText('recvProgSub', `${fmtSize(recvBytes)} / ${fmtSize(recvFileSize)}  ·  ${fmtSpeed(recvBytes / elapsed)}`);
-
-    // File complete?
-    if (recvBytes >= recvFileSize) {
-      finalizeRecvFile();
+    } else if (msg.__ft === 'all-done') {
       hide('recvProgress');
       showFileGallery();
     }
+
+  } else {
+    if (currentRecvIdx < 0 || !recvFiles[currentRecvIdx]) return;
+    const fi = recvFiles[currentRecvIdx];
+    let buf;
+    if (data instanceof ArrayBuffer) {
+      buf = data;
+    } else if (ArrayBuffer.isView(data)) {
+      buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    } else if (data instanceof Blob) {
+      data.arrayBuffer().then(ab => {
+        fi.chunks.push(ab); fi.bytes += ab.byteLength;
+        totalRecvBytes += ab.byteLength; updateRecvProgress();
+      });
+      return;
+    } else return;
+    fi.chunks.push(buf); fi.bytes += buf.byteLength;
+    totalRecvBytes += buf.byteLength;
+    updateRecvProgress();
   }
 }
 
-function finalizeRecvFile() {
-  if (!recvFileName || recvChunks.length === 0) return;
-
-  // Guess MIME type from extension
-  const ext = recvFileName.split('.').pop().toLowerCase();
-  const mimeMap = {
-    'pdf': 'application/pdf',
-    'doc': 'application/msword',
-    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'xls': 'application/vnd.ms-excel',
-    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'txt': 'text/plain',
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-  };
-  const mime = mimeMap[ext] || 'application/octet-stream';
-
-  const blob = new Blob(recvChunks, { type: mime });
-  recvFiles.push({
-    meta: { name: recvFileName, size: recvFileSize, mime },
-    blob,
-  });
-
-  // Reset for next file
-  recvFileName = '';
-  recvFileSize = 0;
-  recvChunks   = [];
-  recvBytes    = 0;
+function updateRecvProgress() {
+  const pct = Math.min(100, Math.round(totalRecvBytes / (totalRecvSize || 1) * 100));
+  setText('recvProgPct', pct + '%');
+  document.getElementById('recvProgFill').style.width = pct + '%';
+  setText('recvProgSub', `${fmtSize(totalRecvBytes)} / ${fmtSize(totalRecvSize)}`);
 }
 
 // ═══════════════════════════════════════════
 //  FILE GALLERY (receive)
 // ═══════════════════════════════════════════
+// Track ObjectURLs to revoke them on cleanup
 let activeObjectURLs = [];
 
 function showFileGallery() {
+  // Revoke any previously created ObjectURLs
   activeObjectURLs.forEach(u => URL.revokeObjectURL(u));
   activeObjectURLs = [];
 
-  const n = recvFiles.length;
-  setText('galleryCount', `${n} fichier${n > 1 ? 's' : ''} reçu${n > 1 ? 's' : ''} !`);
+  const n = recvFiles.filter(Boolean).length;
+  setText('galleryCount', `✅ ${n} fichier${n > 1 ? 's' : ''} reçu${n > 1 ? 's' : ''} !`);
   const list = document.getElementById('galleryList');
   list.innerHTML = '';
   recvFiles.forEach((fi, i) => { if (fi && fi.blob) list.appendChild(createGalleryItem(fi, i)); });
@@ -725,9 +757,9 @@ function createGalleryItem(fi, i) {
       </div>
     </div>
     <div class="gallery-item-btns">
-      <button class="btn-ga btn-dl">Télécharger</button>
-      ${prev ? '<button class="btn-ga btn-prev">Aperçu</button>' : ''}
-      ${prev ? '<button class="btn-ga btn-prn">Imprimer</button>' : ''}
+      <button class="btn-ga btn-dl">⬇ Télécharger</button>
+      ${prev ? '<button class="btn-ga btn-prev">👁 Aperçu</button>' : ''}
+      ${prev ? '<button class="btn-ga btn-prn">🖨 Imprimer</button>' : ''}
     </div>
     ${prev ? `<div class="gallery-preview" id="gprev-${i}" style="display:none"></div>` : ''}
   `;
@@ -854,13 +886,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Send: connect to receiver by code ──
   document.getElementById('btnConnect').addEventListener('click', () => {
-    connectToReceiver(document.getElementById('sendCodeInput').value.trim());
+    connectToOther(document.getElementById('sendCodeInput').value.trim());
   });
   document.getElementById('sendCodeInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnConnect').click();
   });
   document.getElementById('sendCodeInput').addEventListener('input', e => {
-    e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    e.target.value = e.target.value.replace(/[^a-zA-Z0-9]/g, '');
   });
 
   // ── Recv: conn action grid (3 boutons) ──
@@ -886,13 +918,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Recv: connect to sender by code ──
   document.getElementById('btnRecvConnect').addEventListener('click', () => {
-    connectToSender(document.getElementById('recvCodeInput').value.trim());
+    connectToOtherAsRecv(document.getElementById('recvCodeInput').value.trim());
   });
   document.getElementById('recvCodeInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnRecvConnect').click();
   });
   document.getElementById('recvCodeInput').addEventListener('input', e => {
-    e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    e.target.value = e.target.value.replace(/[^a-zA-Z0-9]/g, '');
   });
 
   // ── File input ──
@@ -922,3 +954,204 @@ document.addEventListener('DOMContentLoaded', () => {
 
   showScreen('screenMode');
 });
+
+// ═══════════════════════════════════════════
+//  RELAY BRIDGE — Web ↔ Tauri Desktop
+//
+//  Tauri uses lowercase codes via a WebSocket relay.
+//  PeerJS uses uppercase codes via WebRTC.
+//  This bridge lets the website talk to Tauri apps
+//  by detecting the code format and routing accordingly.
+// ═══════════════════════════════════════════
+
+const RELAY_URL = 'wss://flash-transfer-7vj7.onrender.com';
+const RELAY_CHUNK = 256 * 1024; // 256KB — matches Tauri
+
+let relayWs      = null;
+let relayMode    = null; // 'send' | 'recv' | null
+
+function isRelayCode(code) {
+  // Tauri codes are lowercase alphanumeric; PeerJS codes are uppercase
+  return /^[a-z0-9]{4,12}$/.test(code);
+}
+
+function closeRelay() {
+  if (relayWs) { try { relayWs.close(); } catch (_) {} relayWs = null; }
+  relayMode = null;
+}
+
+// ── Relay: receive file from Tauri sender ──────────
+function relayReceiveFrom(code) {
+  closeRelay();
+  relayMode = 'recv';
+
+  hide('stepRecvConnect');
+  stopRecvQRScanner();
+  showFlex('recvConnStatus');
+  setText('recvConnIcon', '⏳');
+  setText('recvConnText', 'Connexion au relay…');
+  hideError('recvConnectError');
+
+  relayWs = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=receiver`);
+  relayWs.binaryType = 'arraybuffer';
+
+  let fileName = '', fileSize = 0, chunks = [], bytesRecv = 0, tStart = 0;
+
+  relayWs.onopen = () => {
+    setText('recvConnIcon', '⚡');
+    setText('recvConnText', 'Connecté — en attente des fichiers…');
+  };
+
+  relayWs.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      if (event.data === 'PEER_CONNECTED') {
+        setText('recvConnText', 'Expéditeur connecté — transfert imminent…');
+        return;
+      }
+      if (event.data === 'PEER_DISCONNECTED') {
+        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
+          // Finalize if in progress
+          if (fileName && chunks.length > 0) {
+            finalizeRelayFile(fileName, fileSize, chunks);
+          }
+          hide('recvProgress');
+          showFileGallery();
+        } else {
+          toast('L\'expéditeur s\'est déconnecté.');
+          showBlock('stepRecvConnect'); hide('recvConnStatus');
+        }
+        return;
+      }
+      // JSON metadata from Tauri: {"name":"file.txt","size":12345}
+      try {
+        const meta = JSON.parse(event.data);
+        if (meta.name && meta.size !== undefined) {
+          // Finalize previous file if any
+          if (fileName && chunks.length > 0) {
+            finalizeRelayFile(fileName, fileSize, chunks);
+          }
+          fileName = meta.name;
+          fileSize = meta.size;
+          chunks = [];
+          bytesRecv = 0;
+          tStart = Date.now();
+          hide('recvConnStatus');
+          showFlex('recvProgress');
+          setText('recvProgLabel', `Réception — ${meta.name}`);
+          setText('recvProgPct', '0%');
+          document.getElementById('recvProgFill').style.width = '0';
+        }
+      } catch (_) {}
+
+    } else {
+      // Binary chunk
+      if (!fileName) return;
+      chunks.push(event.data);
+      bytesRecv += event.data.byteLength;
+      const pct = Math.min(100, Math.round(bytesRecv / (fileSize || 1) * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('recvProgPct', pct + '%');
+      document.getElementById('recvProgFill').style.width = pct + '%';
+      setText('recvProgSub', `${fmtSize(bytesRecv)} / ${fmtSize(fileSize)}  ·  ${fmtSpeed(bytesRecv / elapsed)}`);
+
+      if (bytesRecv >= fileSize) {
+        finalizeRelayFile(fileName, fileSize, chunks);
+        fileName = ''; chunks = []; bytesRecv = 0;
+        hide('recvProgress');
+        showFileGallery();
+      }
+    }
+  };
+
+  relayWs.onerror = () => {
+    toast('Erreur de connexion au relay.');
+    showBlock('stepRecvConnect'); hide('recvConnStatus');
+  };
+}
+
+function finalizeRelayFile(name, size, chunks) {
+  const ext = name.split('.').pop().toLowerCase();
+  const mimeMap = {
+    'pdf':'application/pdf', 'doc':'application/msword',
+    'docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xls':'application/vnd.ms-excel',
+    'xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'txt':'text/plain', 'png':'image/png', 'jpg':'image/jpeg', 'jpeg':'image/jpeg',
+  };
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  const blob = new Blob(chunks, { type: mime });
+  recvFiles.push({ meta: { name, size, mime }, blob });
+}
+
+// ── Relay: send file to Tauri receiver ──────────
+async function relaySendTo(code) {
+  if (!selectedFiles.length) return;
+  closeRelay();
+  relayMode = 'send';
+  sendStarted = true;
+  const btn = document.getElementById('btnSend');
+  if (btn) btn.disabled = true;
+
+  hide('stepConnect');
+  showFlex('sendConnStatus');
+  setText('sendConnText', 'Connexion au relay…');
+
+  relayWs = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=sender`);
+  relayWs.binaryType = 'arraybuffer';
+
+  relayWs.onopen = () => {
+    setText('sendConnText', 'En attente du destinataire…');
+  };
+
+  relayWs.onmessage = async (event) => {
+    if (typeof event.data === 'string' && event.data === 'PEER_CONNECTED') {
+      hide('sendConnStatus');
+      toast('Destinataire connecté !', 'success');
+
+      // Stream files
+      const pb = document.getElementById('sendProgress');
+      pb.style.display = 'flex'; pb.classList.add('show');
+
+      const totalFiles = selectedFiles.length;
+      const totalAllBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+      let totalSent = 0;
+      const tStart = Date.now();
+
+      for (let fi = 0; fi < totalFiles; fi++) {
+        const file = selectedFiles[fi];
+        // Send metadata JSON — Tauri protocol
+        relayWs.send(JSON.stringify({ name: file.name, size: file.size }));
+
+        let offset = 0;
+        while (offset < file.size) {
+          const end = Math.min(offset + RELAY_CHUNK, file.size);
+          const chunk = file.slice(offset, end);
+          const buf = await chunk.arrayBuffer();
+          relayWs.send(buf);
+          offset = end;
+          totalSent += buf.byteLength;
+
+          const pct = Math.min(100, Math.round(totalSent / totalAllBytes * 100));
+          const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+          setText('sendProgPct', pct + '%');
+          document.getElementById('sendProgFill').style.width = pct + '%';
+          setText('sendProgLabel', `Fichier ${fi + 1}/${totalFiles} — ${file.name}`);
+          setText('sendProgSub', `${fmtSize(totalSent)} / ${fmtSize(totalAllBytes)}  ·  ${fmtSpeed(totalSent / elapsed)}`);
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+
+      hide('sendProgress');
+      setText('sendDoneName', `${totalFiles} fichier${totalFiles > 1 ? 's' : ''} envoyé${totalFiles > 1 ? 's' : ''} !`);
+      showFlex('sendDone');
+      closeRelay();
+    }
+  };
+
+  relayWs.onerror = () => {
+    toast('Erreur de connexion au relay.');
+    hide('sendConnStatus');
+    sendStarted = false;
+    if (btn) btn.disabled = false;
+  };
+}
