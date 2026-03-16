@@ -847,6 +847,385 @@ function setupConnActions(actionMap) {
 }
 
 // ═══════════════════════════════════════════
+//  RELAY MODE (Desktop ↔ Website)
+// ═══════════════════════════════════════════
+const RELAY_URL = 'wss://flash-transfer-7vj7.onrender.com';
+const RELAY_CHUNK = 256 * 1024; // 256KB chunks (same as desktop)
+
+let relayWs            = null;
+let relaySelectedFiles = [];
+let relaySendStarted   = false;
+let relayPeerReady     = false;
+
+// ── Relay: teardown ──
+function destroyRelay() {
+  relaySendStarted = false;
+  relayPeerReady   = false;
+  try { if (relayWs) relayWs.close(); } catch (_) {}
+  relayWs = null;
+}
+
+function resetRelay() {
+  destroyRelay();
+  relaySelectedFiles = [];
+}
+
+// ── Relay: genCode (lowercase like desktop) ──
+function genRelayCode() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const arr = new Uint8Array(6);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => chars[b % chars.length]).join('');
+}
+
+// ── Relay Send: file handling ──
+function handleRelayFiles(files) {
+  let hadError = false;
+  for (const file of files) {
+    if (relaySelectedFiles.some(f => f.name === file.name && f.size === file.size)) continue;
+    const err = validateFile(file);
+    if (err) { showError('relayFileError', err); hadError = true; continue; }
+    relaySelectedFiles.push(file);
+  }
+  if (!hadError) hideError('relayFileError');
+  renderRelayFileList();
+  updateRelaySendBtn();
+}
+
+function removeRelayFile(idx) {
+  relaySelectedFiles.splice(idx, 1);
+  renderRelayFileList();
+  updateRelaySendBtn();
+}
+
+function renderRelayFileList() {
+  const list = document.getElementById('relayFileListEl');
+  list.innerHTML = '';
+  relaySelectedFiles.forEach((f, i) => {
+    const item = document.createElement('div');
+    item.className = 'file-list-item';
+    item.innerHTML = `
+      <span class="file-list-icon">${fileIcon(f.name, f.type)}</span>
+      <div class="file-list-info">
+        <span class="file-list-name">${escHtml(f.name)}</span>
+        <span class="file-list-size">${fmtSize(f.size)}</span>
+      </div>
+      <button class="file-remove-btn" title="Retirer">✕</button>
+    `;
+    item.querySelector('.file-remove-btn').addEventListener('click', () => removeRelayFile(i));
+    list.appendChild(item);
+  });
+}
+
+function updateRelaySendBtn() {
+  const btn = document.getElementById('btnRelaySend');
+  if (!btn) return;
+  btn.disabled = !(relayPeerReady && relaySelectedFiles.length > 0 && !relaySendStarted);
+  const n = relaySelectedFiles.length;
+  btn.textContent = n <= 1
+    ? `Envoyer${n === 1 ? ' 1 fichier' : ''} via relay ⚡`
+    : `Envoyer ${n} fichiers via relay ⚡`;
+}
+
+// ── Relay Send: init ──
+function initRelaySend() {
+  showScreen('screenDesktopSend');
+  resetRelay();
+
+  // Reset UI
+  hide('btnRelaySend');
+  hide('relaySendProgress');
+  hide('relaySendDone');
+  hideError('relayFileError');
+  document.getElementById('relayFileListEl').innerHTML = '';
+  document.getElementById('btnCopyRelaySendCode').disabled = true;
+  document.getElementById('relaySendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
+  setText('relaySendStatus', 'Connexion au serveur relay...');
+  showBlock('stepRelaySendConnect');
+
+  const myCode = genRelayCode();
+
+  relayWs = new WebSocket(`${RELAY_URL}/ws?code=${myCode}&role=sender`);
+  relayWs.binaryType = 'arraybuffer';
+
+  relayWs.onopen = () => {
+    document.getElementById('relaySendCodeDisplay').innerHTML = `<span class="code-chars code-chars-lower">${myCode}</span>`;
+    document.getElementById('btnCopyRelaySendCode').disabled = false;
+    setText('relaySendStatus', 'En attente de l\'app desktop...');
+  };
+
+  relayWs.onmessage = (evt) => {
+    if (typeof evt.data === 'string') {
+      if (evt.data === 'PEER_CONNECTED') {
+        relayPeerReady = true;
+        setText('relaySendStatus', 'App desktop connectée !');
+        showBlock('btnRelaySend');
+        updateRelaySendBtn();
+        toast('App desktop connectée !', 'success');
+      } else if (evt.data === 'PEER_DISCONNECTED') {
+        relayPeerReady = false;
+        if (!relaySendStarted) {
+          hide('btnRelaySend');
+          setText('relaySendStatus', 'App desktop déconnectée.');
+          toast('App desktop déconnectée.');
+        }
+      } else {
+        // Check for error JSON
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.error) toast('Erreur relay : ' + msg.error);
+        } catch (_) {}
+      }
+    }
+  };
+
+  relayWs.onerror = () => {
+    toast('Impossible de se connecter au serveur relay.');
+    setText('relaySendStatus', 'Erreur de connexion.');
+  };
+
+  relayWs.onclose = () => {
+    if (!relaySendStarted) {
+      setText('relaySendStatus', 'Connexion fermée.');
+    }
+  };
+}
+
+// ── Relay Send: stream files ──
+async function doRelaySend() {
+  if (!relayWs || relayWs.readyState !== WebSocket.OPEN || relaySelectedFiles.length === 0 || !relayPeerReady || relaySendStarted) return;
+  relaySendStarted = true;
+  document.getElementById('btnRelaySend').disabled = true;
+  hide('stepRelaySendConnect');
+
+  const pb = document.getElementById('relaySendProgress');
+  pb.style.display = 'flex'; pb.classList.add('show');
+
+  const totalBytes = relaySelectedFiles.reduce((s, f) => s + f.size, 0);
+  let sentBytes = 0;
+  const tStart = Date.now();
+
+  for (let fi = 0; fi < relaySelectedFiles.length; fi++) {
+    const file = relaySelectedFiles[fi];
+
+    // Send metadata JSON
+    relayWs.send(JSON.stringify({ name: file.name, size: file.size }));
+
+    // Stream file in chunks
+    let offset = 0;
+    while (offset < file.size) {
+      const end = Math.min(offset + RELAY_CHUNK, file.size);
+      const chunk = file.slice(offset, end);
+      const buf = await chunk.arrayBuffer();
+
+      // Wait if WS bufferedAmount is too high (backpressure)
+      while (relayWs.bufferedAmount > 1024 * 1024) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      relayWs.send(buf);
+      offset = end;
+      sentBytes += buf.byteLength;
+
+      // Update progress
+      const pct = Math.min(100, Math.round(sentBytes / totalBytes * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('relaySendProgPct', pct + '%');
+      document.getElementById('relaySendProgFill').style.width = pct + '%';
+      setText('relaySendProgLabel', `Fichier ${fi + 1}/${relaySelectedFiles.length} — ${file.name}`);
+      setText('relaySendProgSub', `${fmtSize(sentBytes)} / ${fmtSize(totalBytes)}  ·  ${fmtSpeed(sentBytes / elapsed)}`);
+    }
+  }
+
+  // Done
+  hide('relaySendProgress');
+  const n = relaySelectedFiles.length;
+  setText('relaySendDoneName', `${n} fichier${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} !`);
+  showFlex('relaySendDone');
+}
+
+// ── Relay Receive: init ──
+function initRelayRecv() {
+  showScreen('screenDesktopRecv');
+  resetRelay();
+
+  // Reset UI
+  showBlock('stepRelayRecvConnect');
+  hide('relayRecvConnStatus');
+  hide('relayRecvProgress');
+  hide('relayRecvGallery');
+  hideError('relayRecvError');
+  document.getElementById('relayRecvCodeInput').value = '';
+  document.getElementById('relayGalleryList').innerHTML = '';
+}
+
+// ── Relay Receive: connect ──
+function connectRelayRecv(rawCode) {
+  const code = rawCode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (code.length < 4 || code.length > 12) {
+    showError('relayRecvError', 'Code invalide (4-12 caractères alphanumériques).');
+    return;
+  }
+
+  hide('stepRelayRecvConnect');
+  showFlex('relayRecvConnStatus');
+  setText('relayRecvConnIcon', '⏳');
+  setText('relayRecvConnText', 'Connexion au relay...');
+  hideError('relayRecvError');
+
+  relayWs = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=receiver`);
+  relayWs.binaryType = 'arraybuffer';
+
+  let fileName = '';
+  let fileSize = 0;
+  let receivedBytes = 0;
+  let chunks = [];
+  const tStart = Date.now();
+
+  relayWs.onopen = () => {
+    setText('relayRecvConnIcon', '⚡');
+    setText('relayRecvConnText', 'Connecté — en attente du fichier...');
+  };
+
+  relayWs.onmessage = (evt) => {
+    if (typeof evt.data === 'string') {
+      // Could be PEER_CONNECTED, PEER_DISCONNECTED, metadata JSON, or error
+      if (evt.data === 'PEER_CONNECTED') {
+        setText('relayRecvConnText', 'Expéditeur connecté — en attente du fichier...');
+        return;
+      }
+      if (evt.data === 'PEER_DISCONNECTED') {
+        if (receivedBytes === 0) {
+          toast('L\'expéditeur s\'est déconnecté.');
+          showBlock('stepRelayRecvConnect');
+          hide('relayRecvConnStatus');
+        }
+        return;
+      }
+
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.error) {
+          toast('Erreur relay : ' + msg.error);
+          showBlock('stepRelayRecvConnect');
+          hide('relayRecvConnStatus');
+          return;
+        }
+        if (msg.name && msg.size !== undefined) {
+          fileName = msg.name;
+          fileSize = msg.size;
+          receivedBytes = 0;
+          chunks = [];
+          hide('relayRecvConnStatus');
+          const pb = document.getElementById('relayRecvProgress');
+          pb.style.display = 'flex'; pb.classList.add('show');
+          setText('relayRecvProgLabel', `Réception — ${fileName}`);
+        }
+      } catch (_) {}
+    } else {
+      // Binary data: file chunk
+      const buf = evt.data instanceof ArrayBuffer ? evt.data : new Uint8Array(evt.data).buffer;
+      chunks.push(buf);
+      receivedBytes += buf.byteLength;
+
+      const pct = Math.min(100, Math.round(receivedBytes / (fileSize || 1) * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('relayRecvProgPct', pct + '%');
+      document.getElementById('relayRecvProgFill').style.width = pct + '%';
+      setText('relayRecvProgSub', `${fmtSize(receivedBytes)} / ${fmtSize(fileSize)}  ·  ${fmtSpeed(receivedBytes / elapsed)}`);
+
+      if (receivedBytes >= fileSize) {
+        // File complete
+        hide('relayRecvProgress');
+        const blob = new Blob(chunks);
+        showRelayRecvGallery(fileName, fileSize, blob);
+      }
+    }
+  };
+
+  relayWs.onerror = () => {
+    toast('Impossible de se connecter au relay.');
+    showBlock('stepRelayRecvConnect');
+    hide('relayRecvConnStatus');
+  };
+
+  relayWs.onclose = () => {
+    if (receivedBytes > 0 && receivedBytes < fileSize) {
+      toast('Connexion perdue pendant le transfert.');
+    }
+  };
+}
+
+// ── Relay Receive: gallery ──
+function showRelayRecvGallery(name, size, blob) {
+  const mime = blob.type || guessMime(name);
+  setText('relayGalleryCount', '✅ Fichier reçu !');
+  const list = document.getElementById('relayGalleryList');
+  list.innerHTML = '';
+
+  const icon   = fileIcon(name, mime);
+  const objUrl = URL.createObjectURL(blob);
+  const prev   = canPreview(mime);
+
+  const div = document.createElement('div');
+  div.className = 'gallery-item';
+  div.innerHTML = `
+    <div class="gallery-item-info">
+      <span class="gallery-item-icon">${icon}</span>
+      <div class="gallery-item-meta">
+        <span class="gallery-item-name">${escHtml(name)}</span>
+        <span class="gallery-item-size">${fmtSize(size)}</span>
+      </div>
+    </div>
+    <div class="gallery-item-btns">
+      <button class="btn-ga btn-dl">⬇ Télécharger</button>
+      ${prev ? '<button class="btn-ga btn-prev">👁 Aperçu</button>' : ''}
+    </div>
+    ${prev ? '<div class="gallery-preview relay-gprev" style="display:none"></div>' : ''}
+  `;
+
+  div.querySelector('.btn-dl').addEventListener('click', () => downloadBlob(blob, name));
+  if (prev) {
+    div.querySelector('.btn-prev').addEventListener('click', () => {
+      const pEl = div.querySelector('.relay-gprev');
+      if (pEl.style.display !== 'none') { pEl.style.display = 'none'; pEl.innerHTML = ''; return; }
+      pEl.innerHTML = '';
+      if (/^image\//.test(mime)) {
+        const img = document.createElement('img');
+        img.src = objUrl; img.className = 'preview-img';
+        pEl.appendChild(img);
+      } else if (mime === 'application/pdf') {
+        const ifr = document.createElement('iframe');
+        ifr.src = objUrl; ifr.className = 'preview-pdf';
+        pEl.appendChild(ifr);
+      } else if (mime === 'text/plain') {
+        blob.text().then(t => {
+          const pre = document.createElement('pre');
+          pre.className = 'preview-text'; pre.textContent = t;
+          pEl.appendChild(pre);
+        });
+      }
+      pEl.style.display = 'block';
+    });
+  }
+
+  list.appendChild(div);
+  showBlock('relayRecvGallery');
+  toast('Fichier reçu !', 'success');
+}
+
+function guessMime(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const map = {
+    pdf: 'application/pdf', txt: 'text/plain',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+// ═══════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
@@ -951,6 +1330,61 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnNewSend').addEventListener('click', () => {
     resetAll(); showScreen('screenMode');
   });
+
+  // ── Desktop relay mode ──
+  document.getElementById('btnModeDesktop').addEventListener('click', () => showScreen('screenDesktop'));
+  document.getElementById('btnDesktopBack').addEventListener('click', () => { resetRelay(); showScreen('screenMode'); });
+  document.getElementById('btnDesktopSend').addEventListener('click', initRelaySend);
+  document.getElementById('btnDesktopRecv').addEventListener('click', initRelayRecv);
+
+  document.getElementById('btnDesktopSendBack').addEventListener('click', () => { resetRelay(); showScreen('screenDesktop'); });
+  document.getElementById('btnDesktopRecvBack').addEventListener('click', () => { resetRelay(); showScreen('screenDesktop'); });
+
+  // Relay send: file input
+  document.getElementById('relayFileInput').addEventListener('change', e => {
+    if (e.target.files.length) handleRelayFiles(Array.from(e.target.files));
+    e.target.value = '';
+  });
+
+  // Relay send: drag & drop
+  const rdz = document.getElementById('relayDropzone');
+  rdz.addEventListener('dragover',  e => { e.preventDefault(); rdz.classList.add('dragover'); });
+  rdz.addEventListener('dragleave', ()  => rdz.classList.remove('dragover'));
+  rdz.addEventListener('drop', e => {
+    e.preventDefault(); rdz.classList.remove('dragover');
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) handleRelayFiles(files);
+  });
+
+  // Relay send: send button
+  document.getElementById('btnRelaySend').addEventListener('click', doRelaySend);
+
+  // Relay send: copy code
+  document.getElementById('btnCopyRelaySendCode').addEventListener('click', () => {
+    const code = document.querySelector('#relaySendCodeDisplay .code-chars')?.textContent;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => toast('Code copié !', 'success'))
+      .catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = code; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+        toast('Code copié !', 'success');
+      });
+  });
+
+  // Relay send: new transfer
+  document.getElementById('btnNewRelaySend').addEventListener('click', () => { resetRelay(); showScreen('screenDesktop'); });
+
+  // Relay recv: connect button
+  document.getElementById('btnRelayRecvConnect').addEventListener('click', () => {
+    connectRelayRecv(document.getElementById('relayRecvCodeInput').value);
+  });
+  document.getElementById('relayRecvCodeInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnRelayRecvConnect').click();
+  });
+
+  // Relay recv: new transfer
+  document.getElementById('btnNewRelayRecv').addEventListener('click', () => { resetRelay(); showScreen('screenDesktop'); });
 
   showScreen('screenMode');
 });

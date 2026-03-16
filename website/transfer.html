@@ -56,6 +56,16 @@
         <p>Affichez votre QR code et attendez l'expéditeur</p>
       </button>
     </div>
+
+    <div class="mode-or">ou</div>
+
+    <div class="mode-cards">
+      <button class="mode-card mode-card-desktop" id="btnModeDesktop">
+        <div class="mode-card-icon">💻</div>
+        <h2>Transférer avec l'app desktop</h2>
+        <p>Envoyez ou recevez des fichiers via l'application Flash Transfer installée sur un PC</p>
+      </button>
+    </div>
   </div>
 
   <!-- ════ SEND SCREEN ════ -->
@@ -261,6 +271,165 @@
     </div>
 
     <button class="btn-back" id="btnRecvBack">← Retour</button>
+  </div>
+
+  <!-- ════ DESKTOP MODE SELECTION ════ -->
+  <div id="screenDesktop" class="t-screen">
+    <div class="t-header">
+      <h1>Transfert avec l'app desktop</h1>
+      <p>Choisissez votre rôle</p>
+    </div>
+
+    <div class="mode-cards">
+      <button class="mode-card" id="btnDesktopSend">
+        <div class="mode-card-icon">📤</div>
+        <h2>Envoyer vers le PC</h2>
+        <p>Envoyez des fichiers depuis le navigateur vers l'app desktop</p>
+      </button>
+      <button class="mode-card" id="btnDesktopRecv">
+        <div class="mode-card-icon">📥</div>
+        <h2>Recevoir du PC</h2>
+        <p>Recevez des fichiers depuis l'app desktop dans le navigateur</p>
+      </button>
+    </div>
+
+    <button class="btn-back" id="btnDesktopBack">← Retour</button>
+  </div>
+
+  <!-- ════ DESKTOP SEND SCREEN ════ -->
+  <div id="screenDesktopSend" class="t-screen">
+    <div class="t-header">
+      <h1>Envoyer vers le PC</h1>
+      <p class="relay-badge-hint">via serveur relay</p>
+    </div>
+
+    <div class="t-card">
+
+      <!-- Step 1: File picker -->
+      <div class="t-step">
+        <div class="t-step-label">1 — Sélectionnez vos fichiers</div>
+        <div class="dropzone" id="relayDropzone">
+          <input type="file" id="relayFileInput" multiple
+            accept=".txt,.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg">
+          <div class="dz-content">
+            <div class="dz-icon">📁</div>
+            <p class="dz-text">Glissez vos fichiers ici</p>
+            <p class="dz-or">ou</p>
+            <label for="relayFileInput" class="btn-primary" style="cursor:pointer">Choisir des fichiers</label>
+          </div>
+        </div>
+        <div id="relayFileListEl" class="file-list"></div>
+        <div class="t-error" id="relayFileError"></div>
+      </div>
+
+      <!-- Step 2: Relay code -->
+      <div class="t-step" id="stepRelaySendConnect" style="margin-top:16px">
+        <div class="t-step-label">2 — Communiquez ce code à l'app desktop</div>
+
+        <div class="code-always-row">
+          <div class="code-display" id="relaySendCodeDisplay">
+            <div class="code-spinner"></div>
+          </div>
+          <button class="btn-copy-code" id="btnCopyRelaySendCode" title="Copier le code" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          </button>
+        </div>
+
+        <p class="t-status" id="relaySendStatus">Connexion au serveur relay...</p>
+
+        <div class="relay-hint-box">
+          <p>Dans l'app desktop, allez dans <strong>Internet (Code)</strong> et entrez ce code pour recevoir les fichiers.</p>
+        </div>
+      </div>
+
+      <!-- Send button -->
+      <button class="btn-primary btn-full" id="btnRelaySend" disabled style="display:none">
+        Envoyer via relay ⚡
+      </button>
+
+      <!-- Progress -->
+      <div class="progress-block" id="relaySendProgress" style="display:none">
+        <div class="prog-info">
+          <span id="relaySendProgLabel">Envoi en cours…</span>
+          <span id="relaySendProgPct">0%</span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="relaySendProgFill"></div>
+        </div>
+        <p class="prog-sub" id="relaySendProgSub"></p>
+      </div>
+
+      <!-- Done -->
+      <div class="done-block" id="relaySendDone" style="display:none">
+        <div class="done-icon">✅</div>
+        <h3 class="done-name" id="relaySendDoneName">Envoi terminé !</h3>
+        <p class="done-hint">Le PC a bien reçu vos fichiers.</p>
+        <button class="btn-primary" id="btnNewRelaySend">Nouveau transfert</button>
+      </div>
+
+    </div>
+
+    <button class="btn-back" id="btnDesktopSendBack">← Retour</button>
+  </div>
+
+  <!-- ════ DESKTOP RECEIVE SCREEN ════ -->
+  <div id="screenDesktopRecv" class="t-screen">
+    <div class="t-header">
+      <h1>Recevoir du PC</h1>
+      <p class="relay-badge-hint">via serveur relay</p>
+    </div>
+
+    <div class="t-card">
+
+      <!-- Enter relay code -->
+      <div class="t-step" id="stepRelayRecvConnect">
+        <div class="t-step-label">Entrez le code affiché dans l'app desktop</div>
+
+        <div class="relay-hint-box">
+          <p>Dans l'app desktop, allez dans <strong>Internet (Code)</strong> et cliquez <strong>Générer un code</strong>. Entrez ce code ci-dessous.</p>
+        </div>
+
+        <div class="code-input-row">
+          <input type="text" id="relayRecvCodeInput" class="code-input"
+            placeholder="abc123" maxlength="6"
+            autocomplete="off" spellcheck="false">
+          <button class="btn-primary" id="btnRelayRecvConnect">Connecter</button>
+        </div>
+        <div class="t-error" id="relayRecvError"></div>
+      </div>
+
+      <!-- Connected status -->
+      <div class="recv-status" id="relayRecvConnStatus" style="display:none">
+        <div class="recv-status-icon" id="relayRecvConnIcon">⏳</div>
+        <p id="relayRecvConnText">Connexion au relay...</p>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-block" id="relayRecvProgress" style="display:none">
+        <div class="prog-info">
+          <span id="relayRecvProgLabel">Réception en cours…</span>
+          <span id="relayRecvProgPct">0%</span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill" id="relayRecvProgFill"></div>
+        </div>
+        <p class="prog-sub" id="relayRecvProgSub"></p>
+      </div>
+
+      <!-- File gallery -->
+      <div id="relayRecvGallery" style="display:none">
+        <div class="gallery-header">
+          <span id="relayGalleryCount">Fichier reçu</span>
+        </div>
+        <div id="relayGalleryList"></div>
+        <button class="btn-primary btn-full" id="btnNewRelayRecv" style="margin-top:6px">
+          Nouveau transfert
+        </button>
+      </div>
+
+    </div>
+
+    <button class="btn-back" id="btnDesktopRecvBack">← Retour</button>
   </div>
 
 </main>
