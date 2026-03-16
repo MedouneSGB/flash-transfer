@@ -1396,13 +1396,10 @@ document.addEventListener('DOMContentLoaded', () => {
 //  PeerJS uses uppercase codes via WebRTC.
 //  This bridge lets the website talk to Tauri apps
 //  by detecting the code format and routing accordingly.
+//  (Uses shared RELAY_URL, RELAY_CHUNK, relayWs from above)
 // ═══════════════════════════════════════════
 
-const RELAY_URL = 'wss://flash-transfer-7vj7.onrender.com';
-const RELAY_CHUNK = 256 * 1024; // 256KB — matches Tauri
-
-let relayWs      = null;
-let relayMode    = null; // 'send' | 'recv' | null
+let relayMode = null; // 'send' | 'recv' | null
 
 function isRelayCode(code) {
   // Tauri codes are lowercase alphanumeric; PeerJS codes are uppercase
