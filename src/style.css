@@ -239,7 +239,7 @@ body {
   object-fit: cover;
 }
 
-.code-input-row { display: flex; gap: 6px; }
+.code-input-row { display: flex; flex-direction: column; gap: 6px; }
 .code-input {
   flex: 1; background: var(--surface3); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text);
