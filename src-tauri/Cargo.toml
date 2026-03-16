@@ -36,6 +36,7 @@ num_cpus = "1.16"
 dirs-next = "2.0"
 lazy_static = "1.4"
 url = "2"
+sha2 = "0.10"
 
 [profile.dev]
 opt-level = 1

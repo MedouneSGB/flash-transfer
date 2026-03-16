@@ -122,17 +122,24 @@ function initSupabase() {
 
 async function signInWithGoogle() {
   if (!supabaseClient) { toast('Supabase non initialisé', 'error'); return; }
-  invoke('start_oauth_server').catch(console.warn);
+  // Start OAuth server and get the dynamically assigned port
+  let port;
+  try {
+    port = await invoke('start_oauth_server');
+  } catch (e) {
+    toast('Erreur serveur OAuth : ' + e, 'error');
+    return;
+  }
   const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: 'http://localhost:7432', skipBrowserRedirect: true },
+    options: { redirectTo: `http://localhost:${port}`, skipBrowserRedirect: true },
   });
   if (error || !data?.url) {
     toast('Erreur OAuth : ' + (error?.message || 'URL manquante'), 'error');
     return;
   }
   await invoke('open_browser_url', { url: data.url });
-  toast('🌐 Connectez-vous dans votre navigateur…', 'info', 12000);
+  toast('Connectez-vous dans votre navigateur...', 'info', 12000);
 }
 
 async function signOut() {
