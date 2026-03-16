@@ -2,23 +2,35 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-const OAUTH_PORT: u16 = 7432;
+/// Preferred OAuth port; falls back to OS-assigned port if busy.
+const OAUTH_PORT_PREFERRED: u16 = 7432;
 
-/// Démarre le mini-serveur HTTP OAuth (non-bloquant — spawn en tâche de fond)
+/// Démarre le mini-serveur HTTP OAuth (non-bloquant — spawn en tâche de fond).
+/// Returns the actual port used (may differ from preferred if it was busy).
 #[tauri::command]
-pub async fn start_oauth_server(app: AppHandle) -> Result<(), String> {
+pub async fn start_oauth_server(app: AppHandle) -> Result<u16, String> {
+    // Try preferred port first, fall back to OS-assigned port
+    let listener = match TcpListener::bind(format!("127.0.0.1:{}", OAUTH_PORT_PREFERRED)).await {
+        Ok(l) => l,
+        Err(_) => {
+            log::warn!("OAuth port {} busy, using OS-assigned port", OAUTH_PORT_PREFERRED);
+            TcpListener::bind("127.0.0.1:0")
+                .await
+                .map_err(|e| format!("Cannot bind OAuth server: {}", e))?
+        }
+    };
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    log::info!("[oauth] listening on port {}", port);
+
     tokio::spawn(async move {
-        if let Err(e) = run_oauth_server(app).await {
+        if let Err(e) = run_oauth_server(app, listener).await {
             eprintln!("[oauth] server error: {}", e);
         }
     });
-    Ok(())
+    Ok(port)
 }
 
-async fn run_oauth_server(app: AppHandle) -> Result<(), String> {
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", OAUTH_PORT))
-        .await
-        .map_err(|e| format!("Port {} indisponible: {}", OAUTH_PORT, e))?;
+async fn run_oauth_server(app: AppHandle, listener: TcpListener) -> Result<(), String> {
 
     // Attend une connexion (timeout 120 s)
     let (mut stream, _) =

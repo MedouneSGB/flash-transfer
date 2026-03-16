@@ -186,12 +186,17 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                             });
 
                                             if bytes_received >= file_size {
+                                                // Compute SHA-256 of received file
+                                                let recv_path = save_dir.join(&file_name);
+                                                let hash = crate::transfer::sha256_file(&recv_path).await.unwrap_or_default();
+                                                log::info!("Relay received {} — SHA-256: {}", file_name, hash);
                                                 let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
                                                     file_name: file_name.clone(),
-                                                    save_path: save_dir.join(&file_name).to_string_lossy().to_string(),
+                                                    save_path: recv_path.to_string_lossy().to_string(),
                                                     total_bytes: file_size,
                                                     elapsed_secs: elapsed,
                                                     avg_speed_mbps: speed,
+                                                    sha256: hash,
                                                 });
                                                 break;
                                             }
@@ -275,12 +280,16 @@ async fn stream_file_via_ws(
     let elapsed = start.elapsed().as_secs_f64();
     let avg_speed = if elapsed > 0.0 { file_size as f64 / elapsed / 1_000_000.0 } else { 0.0 };
 
+    // Compute SHA-256 of sent file
+    let hash = crate::transfer::sha256_file(path).await.unwrap_or_default();
+
     let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
         file_name: file_name.clone(),
         save_path: String::new(),
         total_bytes: file_size,
         elapsed_secs: elapsed,
         avg_speed_mbps: avg_speed,
+        sha256: hash,
     });
 
     Ok(())

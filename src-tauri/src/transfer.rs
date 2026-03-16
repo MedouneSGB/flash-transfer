@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,38 +68,64 @@ pub fn get_received_files() -> Vec<ReceivedFileMeta> {
 
 #[tauri::command]
 pub async fn delete_received_file(id: String, path: String) -> Result<(), String> {
-    tokio::fs::remove_file(&path).await.ok();
+    // SECURITY: Only allow deleting files inside the save directory
+    let save_dir = get_save_dir().canonicalize().unwrap_or_else(|_| get_save_dir());
+    if let Ok(canonical) = std::path::Path::new(&path).canonicalize() {
+        if canonical.starts_with(&save_dir) {
+            tokio::fs::remove_file(&canonical).await.ok();
+        } else {
+            return Err("Accès refusé : suppression hors du dossier FlashTransfer".to_string());
+        }
+    }
     let mut list = load_meta();
     list.retain(|m| m.id != id);
     save_meta(&list);
     Ok(())
 }
 
+/// SECURITY: Validate that the given path is inside the FlashTransfer download directory.
+fn validate_path_in_save_dir(path: &str) -> Result<PathBuf, String> {
+    let save_dir = get_save_dir().canonicalize().unwrap_or_else(|_| get_save_dir());
+    let target = std::path::Path::new(path)
+        .canonicalize()
+        .map_err(|e| format!("Chemin invalide : {}", e))?;
+    if !target.starts_with(&save_dir) {
+        return Err(format!(
+            "Accès refusé : le chemin doit être dans {}",
+            save_dir.display()
+        ));
+    }
+    Ok(target)
+}
+
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
+    let validated = validate_path_in_save_dir(&path)?;
+    let path_str = validated.to_string_lossy().to_string();
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt;
-      std::process::Command::new("explorer").arg(&path).creation_flags(0x08000000).spawn().ok(); }
+      std::process::Command::new("explorer").arg(&path_str).creation_flags(0x08000000).spawn().ok(); }
     #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(&path).spawn().ok();
+    std::process::Command::new("open").arg(&path_str).spawn().ok();
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(&path).spawn().ok();
+    std::process::Command::new("xdg-open").arg(&path_str).spawn().ok();
     Ok(())
 }
 
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
+    let validated = validate_path_in_save_dir(&path)?;
+    let path_str = validated.to_string_lossy().to_string();
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt;
-      // /select, met le fichier en surbrillance dans l'Explorateur
       std::process::Command::new("explorer")
-          .args(["/select,", &path])
+          .args(["/select,", &path_str])
           .creation_flags(0x08000000)
           .spawn().ok(); }
     #[cfg(target_os = "macos")]
-    std::process::Command::new("open").args(["-R", &path]).spawn().ok();
+    std::process::Command::new("open").args(["-R", &path_str]).spawn().ok();
     #[cfg(target_os = "linux")]
-    { let p = std::path::Path::new(&path);
+    { let p = std::path::Path::new(&path_str);
       std::process::Command::new("xdg-open").arg(p.parent().unwrap_or(p)).spawn().ok(); }
     Ok(())
 }
@@ -119,6 +146,10 @@ lazy_static! {
     /// Maps file_name → receive state, shared across concurrent chunk handlers.
     static ref RECV_TRACKER: Mutex<HashMap<String, RecvEntry>> =
         Mutex::new(HashMap::new());
+
+    /// Limits concurrent incoming TCP connections to prevent resource exhaustion.
+    static ref CONN_SEMAPHORE: Arc<tokio::sync::Semaphore> =
+        Arc::new(tokio::sync::Semaphore::new(32));
 }
 
 // ─── Event types ────────────────────────────────────────────────────────────
@@ -147,6 +178,8 @@ pub struct TransferDoneEvent {
     pub total_bytes: u64,
     pub elapsed_secs: f64,
     pub avg_speed_mbps: f64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sha256: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -263,12 +296,16 @@ pub async fn send_file(
     let elapsed = start.elapsed().as_secs_f64();
     let avg_speed = if elapsed > 0.0 { file_size as f64 / elapsed / 1_000_000.0 } else { 0.0 };
 
+    // Compute SHA-256 of sent file for integrity reference
+    let hash = sha256_file(&path).await.unwrap_or_default();
+
     let _ = app.emit("transfer-done", TransferDoneEvent {
         file_name,
         save_path: String::new(),
         total_bytes: file_size,
         elapsed_secs: elapsed,
         avg_speed_mbps: avg_speed,
+        sha256: hash,
     });
 
     Ok(())
@@ -369,10 +406,20 @@ pub async fn start_receiver(
                             let save_dir = save_dir_clone.clone();
                             let app = app_clone.clone();
                             let sender_ip = addr.ip().to_string();
+                            let sem = CONN_SEMAPHORE.clone();
                             tokio::spawn(async move {
+                                // Acquire semaphore permit to limit concurrency
+                                let _permit = match sem.acquire().await {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        log::error!("Connection semaphore closed");
+                                        return;
+                                    }
+                                };
                                 if let Err(e) = handle_incoming(stream, &save_dir, app, sender_ip).await {
                                     log::error!("Receive error: {}", e);
                                 }
+                                // _permit dropped here, releasing the slot
                             });
                         }
                         Err(_) => break,
@@ -559,6 +606,10 @@ async fn handle_incoming(
 
         assemble_file(&file_name, save_dir, file_size, chunks_expected, &final_path).await?;
 
+        // Compute SHA-256 of received file for integrity verification
+        let hash = sha256_file(&final_path).await.unwrap_or_default();
+        log::info!("Received {} — SHA-256: {}", file_name, hash);
+
         // Clean up tracker
         RECV_TRACKER.lock().unwrap().remove(&file_name);
 
@@ -586,6 +637,7 @@ async fn handle_incoming(
             total_bytes: file_size,
             elapsed_secs: elapsed,
             avg_speed_mbps: avg_speed,
+            sha256: hash,
         });
     }
 
@@ -618,6 +670,19 @@ async fn assemble_file(
     out.flush().await.map_err(|e| e.to_string())?;
     log::info!("Assembled {} ({} bytes)", file_name, file_size);
     Ok(())
+}
+
+/// Compute SHA-256 hash of a file, returns hex string.
+pub async fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1024 * 1024]; // 1 MB buffer
+    loop {
+        let n = file.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn get_save_dir() -> PathBuf {
