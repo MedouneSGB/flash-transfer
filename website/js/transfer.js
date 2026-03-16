@@ -54,6 +54,10 @@ let totalRecvExpected = 0;
 let totalRecvSize     = 0;
 let totalRecvBytes    = 0;
 
+// Relay fallback for PeerJS mode
+let relayFallbackWs   = null; // secondary relay WS that listens alongside PeerJS
+let relayFallbackCode = null;
+
 // ── Utilities ───────────────────────────────
 function genCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -147,6 +151,7 @@ function destroyPeer() {
 
 function resetAll() {
   destroyPeer();
+  closeRelayFallback();
   // Close relay WebSocket if active
   if (typeof closeRelay === 'function') closeRelay();
   stopQRScanner();
@@ -155,6 +160,11 @@ function resetAll() {
   totalSendBytes = 0; sentBytes = 0;
   recvFiles = []; currentRecvIdx = -1;
   totalRecvExpected = 0; totalRecvSize = 0; totalRecvBytes = 0;
+}
+
+function closeRelayFallback() {
+  if (relayFallbackWs) { try { relayFallbackWs.close(); } catch (_) {} relayFallbackWs = null; }
+  relayFallbackCode = null;
 }
 
 // ═══════════════════════════════════════════
@@ -327,6 +337,9 @@ function initSend() {
     const copyBtn = document.getElementById('btnCopySendCode');
     if (copyBtn) copyBtn.disabled = false;
     generateQRCode(id, 'qrCanvasSend');
+
+    // Also listen on relay as fallback (lowercase version of same code)
+    startSendRelayFallback(myCode.toLowerCase());
   });
 
   // Receiver may connect to us
@@ -334,6 +347,7 @@ function initSend() {
     if (connectedOnce) { try { c.close(); } catch (_) {} return; }
     connectedOnce = true;
     conn = c;
+    closeRelayFallback(); // PeerJS connected, no need for relay fallback
     onSendConnected();
     c.on('close', () => {
       if (!sendStarted) {
@@ -412,10 +426,14 @@ function connectToOther(rawCode) {
 
   setTimeout(() => {
     if (conn && !conn.open && !peerReady) {
-      toast('Délai dépassé. Vérifiez le code.');
-      hide('sendConnStatus');
+      // PeerJS timed out — fallback to relay
+      toast('Connexion directe échouée, bascule sur le relay…', 'success');
+      setText('sendConnText', 'Bascule sur le relay…');
+      try { conn.close(); } catch (_) {}
+      conn = null;
+      relaySendTo(code.toLowerCase());
     }
-  }, 10000);
+  }, 8000);
 }
 
 function onSendConnected() {
@@ -584,6 +602,9 @@ function initRecv() {
     const copyBtn = document.getElementById('btnCopyRecvCode');
     if (copyBtn) copyBtn.disabled = false;
     generateQRCode(id, 'qrCanvas');
+
+    // Also listen on relay as fallback (lowercase version of same code)
+    startRecvRelayFallback(myCode.toLowerCase());
   });
 
   // Sender may connect to us
@@ -591,6 +612,7 @@ function initRecv() {
     if (connectedOnce) { try { c.close(); } catch (_) {} return; }
     connectedOnce = true;
     conn = c;
+    closeRelayFallback(); // PeerJS connected, no need for relay fallback
     setupRecvConn(c);
   });
 
@@ -645,10 +667,14 @@ function connectToOtherAsRecv(rawCode) {
 
   setTimeout(() => {
     if (conn && !conn.open && totalRecvBytes === 0) {
-      toast('Délai dépassé. Vérifiez le code.');
-      showBlock('stepRecvConnect'); hide('recvConnStatus');
+      // PeerJS timed out — fallback to relay
+      toast('Connexion directe échouée, bascule sur le relay…', 'success');
+      setText('recvConnText', 'Bascule sur le relay…');
+      try { conn.close(); } catch (_) {}
+      conn = null;
+      relayReceiveFrom(code.toLowerCase());
     }
-  }, 10000);
+  }, 8000);
 }
 
 function setupRecvConn(c) {
@@ -844,6 +870,165 @@ function setupConnActions(actionMap) {
       }
     });
   });
+}
+
+// ═══════════════════════════════════════════
+//  RELAY FALLBACK — listen on relay alongside PeerJS
+//
+//  When initRecv()/initSend() opens a PeerJS peer with code ABCDEF,
+//  we also connect to the relay server with code "abcdef" (lowercase).
+//  If the other side falls back to relay (e.g. PeerJS timeout),
+//  it will connect to the same relay room and data flows.
+// ═══════════════════════════════════════════
+
+function startRecvRelayFallback(code) {
+  closeRelayFallback();
+  relayFallbackCode = code;
+  try {
+    relayFallbackWs = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=receiver`);
+    relayFallbackWs.binaryType = 'arraybuffer';
+  } catch (_) { return; }
+
+  let fileName = '', fileSize = 0, chunks = [], bytesRecv = 0, tStart = 0;
+
+  relayFallbackWs.onmessage = (event) => {
+    // If PeerJS already connected, ignore relay
+    if (connectedOnce && conn) return;
+
+    if (typeof event.data === 'string') {
+      if (event.data === 'PEER_CONNECTED') {
+        // Sender connected via relay — switch to relay mode
+        destroyPeer(); // kill PeerJS, relay wins
+        connectedOnce = true;
+        hide('stepRecvConnect');
+        stopRecvQRScanner();
+        showFlex('recvConnStatus');
+        setText('recvConnIcon', '⚡');
+        setText('recvConnText', 'Connecté via relay — en attente des fichiers…');
+        return;
+      }
+      if (event.data === 'PEER_DISCONNECTED') {
+        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
+          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          hide('recvProgress');
+          showFileGallery();
+        } else if (connectedOnce) {
+          toast('L\'expéditeur s\'est déconnecté.');
+        }
+        return;
+      }
+      try {
+        const meta = JSON.parse(event.data);
+        if (meta.error) return;
+        if (meta.name && meta.size !== undefined) {
+          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          fileName = meta.name; fileSize = meta.size;
+          chunks = []; bytesRecv = 0; tStart = Date.now();
+          hide('recvConnStatus');
+          showFlex('recvProgress');
+          setText('recvProgLabel', `Réception — ${meta.name}`);
+          setText('recvProgPct', '0%');
+          document.getElementById('recvProgFill').style.width = '0';
+        }
+      } catch (_) {}
+    } else {
+      if (!fileName) return;
+      chunks.push(event.data);
+      bytesRecv += event.data.byteLength;
+      const pct = Math.min(100, Math.round(bytesRecv / (fileSize || 1) * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('recvProgPct', pct + '%');
+      document.getElementById('recvProgFill').style.width = pct + '%';
+      setText('recvProgSub', `${fmtSize(bytesRecv)} / ${fmtSize(fileSize)}  ·  ${fmtSpeed(bytesRecv / elapsed)}`);
+      if (bytesRecv >= fileSize) {
+        finalizeRelayFile(fileName, fileSize, chunks);
+        fileName = ''; chunks = []; bytesRecv = 0;
+        hide('recvProgress');
+        showFileGallery();
+      }
+    }
+  };
+
+  relayFallbackWs.onerror = () => {}; // silent — it's just a fallback
+}
+
+function startSendRelayFallback(code) {
+  closeRelayFallback();
+  relayFallbackCode = code;
+  try {
+    relayFallbackWs = new WebSocket(`${RELAY_URL}/ws?code=${code}&role=sender`);
+    relayFallbackWs.binaryType = 'arraybuffer';
+  } catch (_) { return; }
+
+  relayFallbackWs.onmessage = (evt) => {
+    // If PeerJS already connected, ignore relay
+    if (peerReady && conn) return;
+
+    if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') {
+      // Receiver connected via relay — switch to relay mode
+      destroyPeer(); // kill PeerJS, relay wins
+      peerReady = true;
+      hide('sendConnStatus');
+      hide('stepConnect');
+      stopQRScanner();
+      showBlock('btnSend');
+      updateSendBtn();
+      toast('Connecté via relay !', 'success');
+
+      // Override doSend to use relay
+      const origBtn = document.getElementById('btnSend');
+      if (origBtn) {
+        origBtn.removeEventListener('click', doSend);
+        origBtn.addEventListener('click', doSendViaRelayFallback);
+      }
+    }
+  };
+
+  relayFallbackWs.onerror = () => {}; // silent
+}
+
+async function doSendViaRelayFallback() {
+  if (!relayFallbackWs || relayFallbackWs.readyState !== WebSocket.OPEN || selectedFiles.length === 0 || sendStarted) return;
+  sendStarted = true;
+  const btn = document.getElementById('btnSend');
+  if (btn) btn.disabled = true;
+
+  const pb = document.getElementById('sendProgress');
+  pb.style.display = 'flex'; pb.classList.add('show');
+
+  const totalFiles = selectedFiles.length;
+  const totalAllBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+  let totalSent = 0;
+  const tStart = Date.now();
+
+  for (let fi = 0; fi < totalFiles; fi++) {
+    const file = selectedFiles[fi];
+    relayFallbackWs.send(JSON.stringify({ name: file.name, size: file.size }));
+
+    let offset = 0;
+    while (offset < file.size) {
+      const end = Math.min(offset + RELAY_CHUNK, file.size);
+      const chunk = file.slice(offset, end);
+      const buf = await chunk.arrayBuffer();
+      while (relayFallbackWs.bufferedAmount > 1024 * 1024) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+      relayFallbackWs.send(buf);
+      offset = end;
+      totalSent += buf.byteLength;
+
+      const pct = Math.min(100, Math.round(totalSent / totalAllBytes * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('sendProgPct', pct + '%');
+      document.getElementById('sendProgFill').style.width = pct + '%';
+      setText('sendProgLabel', `Fichier ${fi + 1}/${totalFiles} — ${file.name}`);
+      setText('sendProgSub', `${fmtSize(totalSent)} / ${fmtSize(totalAllBytes)}  ·  ${fmtSpeed(totalSent / elapsed)}`);
+    }
+  }
+
+  hide('sendProgress');
+  setText('sendDoneName', `${totalFiles} fichier${totalFiles > 1 ? 's' : ''} envoyé${totalFiles > 1 ? 's' : ''} !`);
+  showFlex('sendDone');
 }
 
 // ═══════════════════════════════════════════
