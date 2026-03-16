@@ -400,10 +400,10 @@ img, svg { display: block; }
 
 .t-header {
   text-align: center;
-  margin-bottom: 36px;
+  margin-bottom: 28px;
 }
-.t-header h1 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 800; letter-spacing: -.02em; margin-bottom: 10px; }
-.t-header p  { color: var(--muted); font-size: .95rem; margin-bottom: 18px; }
+.t-header h1 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 800; letter-spacing: -.02em; margin-bottom: 8px; }
+.t-header p  { color: var(--muted); font-size: .95rem; margin-bottom: 14px; }
 
 .type-info { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .type-info-label { font-size: .78rem; color: var(--muted); }
@@ -417,7 +417,7 @@ img, svg { display: block; }
 /* Mode cards */
 .mode-cards {
   display: flex; flex-direction: column; align-items: stretch;
-  gap: 0; width: 100%;
+  gap: 14px; width: 100%;
 }
 .mode-card {
   background: var(--surface); border: 1px solid var(--border);
@@ -450,10 +450,14 @@ img, svg { display: block; }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 28px;
   width: 100%;
-  display: flex; flex-direction: column; gap: 22px;
+  display: flex; flex-direction: column; gap: 28px;
 }
 
-.t-step { display: flex; flex-direction: column; gap: 12px; }
+.t-step { display: flex; flex-direction: column; gap: 14px; }
+.t-step + .t-step {
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
 .t-step-label { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 
 /* Code display (sender) */
@@ -479,7 +483,7 @@ img, svg { display: block; }
 
 /* QR code canvas (sender) */
 .qr-canvas {
-  display: block; margin: 0 auto;
+  display: block; margin: 8px auto;
   width: 160px; height: 160px;
   border: 3px solid var(--primary);
   border-radius: 10px;
@@ -545,6 +549,9 @@ img, svg { display: block; }
 .dz-or   { font-size: .8rem; color: var(--muted); }
 .dz-content .btn-primary { pointer-events: all; }
 
+/* File list spacing */
+.file-list { margin-top: 4px; }
+
 /* File preview */
 .file-preview {
   display: none;
@@ -602,8 +609,8 @@ img, svg { display: block; }
 /* Receive status */
 .recv-status {
   display: none;
-  flex-direction: column; align-items: center; gap: 10px;
-  padding: 20px 0; text-align: center;
+  flex-direction: column; align-items: center; gap: 12px;
+  padding: 24px 0; text-align: center;
 }
 .recv-status.show { display: flex; }
 .recv-status-icon { font-size: 2.4rem; animation: bolt-anim 1.2s ease infinite; }
@@ -660,9 +667,9 @@ img, svg { display: block; }
    ═══════════════════════════════════════════ */
 .gallery-header {
   font-size: 1.05rem; font-weight: 700;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 .gallery-item {
   background: var(--surface-2); border: 1px solid var(--border);
@@ -766,7 +773,7 @@ img, svg { display: block; }
   border-color: var(--primary); background: rgba(245,158,11,.1);
   color: var(--primary);
 }
-.conn-panel { display: none; }
+.conn-panel { display: none; margin-top: 14px; }
 #qrVideo, #recvQrVideo {
   width: 100%; border-radius: 10px;
   border: 2px solid var(--primary);
