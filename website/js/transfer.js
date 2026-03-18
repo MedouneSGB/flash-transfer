@@ -26,9 +26,13 @@ const ACCEPTED_MIME = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'image/png',
   'image/jpeg',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/vnd.rar',
+  'application/x-rar-compressed',
 ]);
-const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg'];
-const MAX_BYTES    = 25 * 1024 * 1024;
+const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.rar'];
+const MAX_BYTES    = 1024 * 1024 * 1024;
 const CHUNK_SIZE   = 64 * 1024;
 
 // ── State ──────────────────────────────────
@@ -100,7 +104,7 @@ function validateFile(file) {
   if (!ACCEPTED_MIME.has(file.type) && !ACCEPTED_EXT.includes(ext))
     return `Format non autorisé — acceptés : ${ACCEPTED_EXT.join(', ')}`;
   if (file.size === 0)       return 'Le fichier est vide.';
-  if (file.size > MAX_BYTES) return `Trop volumineux (${fmtSize(file.size)}) — max 25 Mo.`;
+  if (file.size > MAX_BYTES) return `Trop volumineux (${fmtSize(file.size)}) — max 1 Go.`;
   return null;
 }
 
