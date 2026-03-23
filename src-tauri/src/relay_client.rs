@@ -190,6 +190,21 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                                 let recv_path = save_dir.join(&file_name);
                                                 let hash = crate::transfer::sha256_file(&recv_path).await.unwrap_or_default();
                                                 log::info!("Relay received {} — SHA-256: {}", file_name, hash);
+                                                // Save to received files list (same as LAN transfer)
+                                                let ext = std::path::Path::new(&file_name)
+                                                    .extension()
+                                                    .and_then(|e| e.to_str())
+                                                    .unwrap_or("?")
+                                                    .to_uppercase();
+                                                crate::transfer::append_meta(crate::transfer::ReceivedFileMeta {
+                                                    id: format!("{:x}", crate::transfer::now_ms()),
+                                                    name: file_name.clone(),
+                                                    path: recv_path.to_string_lossy().to_string(),
+                                                    size: file_size,
+                                                    ext,
+                                                    sender_ip: "relay".to_string(),
+                                                    received_at: crate::transfer::now_ms(),
+                                                });
                                                 let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
                                                     file_name: file_name.clone(),
                                                     save_path: recv_path.to_string_lossy().to_string(),

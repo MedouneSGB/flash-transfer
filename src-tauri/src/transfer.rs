@@ -22,7 +22,7 @@ pub struct ReceivedFileMeta {
     pub received_at: u64,
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -49,7 +49,7 @@ fn save_meta(list: &[ReceivedFileMeta]) {
     }
 }
 
-fn append_meta(entry: ReceivedFileMeta) {
+pub fn append_meta(entry: ReceivedFileMeta) {
     let mut list = load_meta();
     list.push(entry);
     save_meta(&list);
