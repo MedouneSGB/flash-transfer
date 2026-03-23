@@ -1,6 +1,6 @@
 {
   "productName": "Flash Transfer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.flashtransfer.app",
   "build": {
     "frontendDist": "../src"
