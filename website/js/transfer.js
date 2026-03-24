@@ -30,8 +30,18 @@ const ACCEPTED_MIME = new Set([
   'application/x-zip-compressed',
   'application/vnd.rar',
   'application/x-rar-compressed',
+  // Vidéo (iPhone inclus)
+  'video/mp4',
+  'video/quicktime',   // .mov — format natif iPhone
+  'video/x-m4v',       // .m4v
+  'video/x-msvideo',   // .avi
+  'video/x-matroska',  // .mkv
+  'video/webm',
+  'video/3gpp',        // .3gp
+  'video/3gpp2',       // .3g2
 ]);
-const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.rar'];
+const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.rar',
+  '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.3gp', '.3g2'];
 const MAX_BYTES    = 1024 * 1024 * 1024;
 const CHUNK_SIZE   = 64 * 1024;
 
@@ -87,12 +97,13 @@ function fileIcon(name, mime) {
   if (mime.includes('word')       || /\.docx?$/.test(name))  return '📝';
   if (mime.includes('excel')      || /\.xlsx?$/.test(name))  return '📊';
   if (/^image\//.test(mime))                                  return '🖼️';
+  if (/^video\//.test(mime)       || /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2)$/i.test(name)) return '🎬';
   if (mime === 'text/plain'       || name.endsWith('.txt'))   return '📃';
   return '📁';
 }
 
 function canPreview(mime) {
-  return /^image\//.test(mime) || mime === 'application/pdf' || mime === 'text/plain';
+  return /^image\//.test(mime) || /^video\//.test(mime) || mime === 'application/pdf' || mime === 'text/plain';
 }
 
 function escHtml(s) {
@@ -814,6 +825,11 @@ function togglePreview(div, fi, i, url) {
     const img = document.createElement('img');
     img.src = url; img.className = 'preview-img';
     pEl.appendChild(img);
+  } else if (/^video\//.test(mime)) {
+    const vid = document.createElement('video');
+    vid.src = url; vid.className = 'preview-video';
+    vid.controls = true; vid.autoplay = false;
+    pEl.appendChild(vid);
   } else if (mime === 'application/pdf') {
     const ifr = document.createElement('iframe');
     ifr.src = url; ifr.className = 'preview-pdf';
@@ -1383,6 +1399,11 @@ function showRelayRecvGallery(name, size, blob) {
         const img = document.createElement('img');
         img.src = objUrl; img.className = 'preview-img';
         pEl.appendChild(img);
+      } else if (/^video\//.test(mime)) {
+        const vid = document.createElement('video');
+        vid.src = objUrl; vid.className = 'preview-video';
+        vid.controls = true; vid.autoplay = false;
+        pEl.appendChild(vid);
       } else if (mime === 'application/pdf') {
         const ifr = document.createElement('iframe');
         ifr.src = objUrl; ifr.className = 'preview-pdf';
@@ -1410,6 +1431,10 @@ function guessMime(name) {
     doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    // Vidéo
+    mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v',
+    avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    webm: 'video/webm', '3gp': 'video/3gpp', '3g2': 'video/3gpp2',
   };
   return map[ext] || 'application/octet-stream';
 }
@@ -1697,6 +1722,10 @@ function finalizeRelayFile(name, size, chunks) {
     'xls':'application/vnd.ms-excel',
     'xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'txt':'text/plain', 'png':'image/png', 'jpg':'image/jpeg', 'jpeg':'image/jpeg',
+    // Vidéo
+    'mp4':'video/mp4', 'mov':'video/quicktime', 'm4v':'video/x-m4v',
+    'avi':'video/x-msvideo', 'mkv':'video/x-matroska',
+    'webm':'video/webm', '3gp':'video/3gpp', '3g2':'video/3gpp2',
   };
   const mime = mimeMap[ext] || 'application/octet-stream';
   const blob = new Blob(chunks, { type: mime });

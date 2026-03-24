@@ -714,6 +714,11 @@ img, svg { display: block; }
   border: none; border-radius: 8px;
   background: #fff;
 }
+.preview-video {
+  display: block; max-width: 100%; max-height: 480px;
+  margin: 0 auto; border-radius: 8px;
+  background: #000;
+}
 .preview-text {
   font-family: 'Courier New', monospace; font-size: .8rem;
   color: var(--text); background: var(--surface);
