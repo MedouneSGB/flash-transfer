@@ -866,3 +866,135 @@ img, svg { display: block; }
 @media (max-width: 480px) {
   .code-chars { font-size: 2rem; letter-spacing: 7px; }
 }
+
+/* ═══════════════════════════════════════════
+   NOUVEAU DESIGN — W/T codes + UX améliorée
+   ═══════════════════════════════════════════ */
+
+/* ── Hero mode selection ── */
+.t-hero {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.t-hero-icon { font-size: 2.8rem; margin-bottom: 8px; }
+.t-hero-title {
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 800; letter-spacing: -.02em;
+  margin-bottom: 10px;
+}
+.t-hero-sub {
+  color: var(--muted); font-size: .95rem; margin-bottom: 14px;
+}
+.t-hero-compat {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; font-size: .82rem; color: var(--muted);
+}
+
+/* ── Badges de type de code ── */
+.t-code-badge {
+  display: inline-flex; align-items: center;
+  font-size: .72rem; font-weight: 700;
+  padding: 3px 9px; border-radius: 6px;
+  letter-spacing: .02em; white-space: nowrap;
+}
+.t-code-w {
+  background: rgba(245,158,11,.12);
+  border: 1px solid rgba(245,158,11,.35);
+  color: var(--primary);
+}
+.t-code-t {
+  background: rgba(96,165,250,.1);
+  border: 1px solid rgba(96,165,250,.3);
+  color: var(--blue);
+}
+
+/* ── Mode cards horizontal ── */
+.mode-cards-2 { gap: 12px; }
+.mode-card-h {
+  flex-direction: row !important;
+  text-align: left !important;
+  padding: 22px 24px !important;
+  gap: 16px !important;
+}
+.mode-card-h .mode-card-icon { font-size: 1.8rem; flex-shrink: 0; }
+.mode-card-body { flex: 1; }
+.mode-card-body h2 { font-size: 1.05rem; margin-bottom: 3px; }
+.mode-card-body p  { font-size: .82rem; }
+.mode-card-arrow {
+  font-size: 1.2rem; color: var(--muted);
+  flex-shrink: 0; transition: transform var(--ease), color var(--ease);
+}
+.mode-card-h:hover .mode-card-arrow { color: var(--primary); transform: translateX(4px); }
+
+/* ── Panel header (titre + badge) ── */
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 4px;
+}
+.panel-title { font-size: .88rem; font-weight: 700; }
+.file-count-badge {
+  background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.3);
+  color: var(--primary); font-size: .7rem; font-weight: 700;
+  padding: 2px 9px; border-radius: 20px;
+}
+
+/* ── Lettre de préfixe dans le code ── */
+.code-prefix-letter {
+  color: var(--primary); opacity: .7;
+  margin-right: 2px;
+}
+
+/* ── Écran d'envoi : deux colonnes ── */
+#screenSend.t-screen-wide {
+  max-width: 960px;
+}
+.send-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+  width: 100%;
+}
+.send-card {
+  gap: 18px !important;
+}
+@media (max-width: 720px) {
+  .send-layout { grid-template-columns: 1fr; }
+  #screenSend.t-screen-wide { max-width: 520px; }
+}
+
+/* ── Bouton envoyer plus visible ── */
+.btn-send-action {
+  font-size: 1.05rem !important;
+  padding: 16px !important;
+}
+
+/* ── Section réception ── */
+.recv-your-code {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 20px;
+  margin-bottom: 0;
+}
+
+/* ── Rangée QR/Scanner sur la réception ── */
+.recv-qr-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ── Diviseur "ou entrez un code" ── */
+.recv-or-divider {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--muted); font-size: .78rem;
+  padding: 18px 0 14px;
+}
+.recv-or-divider::before,
+.recv-or-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.recv-or-divider span { white-space: nowrap; }
+
+/* ── Input code : accepte 7 chars (W/T + 6) ── */
+.code-input { max-width: 100%; }

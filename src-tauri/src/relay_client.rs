@@ -109,6 +109,19 @@ pub async fn generate_relay_code(app: AppHandle, file_path: String) -> Result<St
 pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String> {
     disconnect_relay().await.ok();
 
+    // Réconciliateur : strip préfixe W (web PeerJS) ou T (relay)
+    // WABC123 → abc123 (relay lowercase), Tabc123 → abc123, abc123 → abc123
+    let code = {
+        let s = code.trim();
+        let lower = s.to_lowercase();
+        let first = lower.chars().next().unwrap_or(' ');
+        if first == 'w' || first == 't' {
+            lower[1..].to_string()
+        } else {
+            lower.to_string()
+        }
+    };
+
     let relay_url = relay_url();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     *RELAY_SHUTDOWN.lock().await = Some(shutdown_tx);
