@@ -475,7 +475,6 @@ function connectToOther(rawCode) {
     return;
   }
 
-  // PeerJS
   const code = parsed.code;
   if (code.length !== 6) { showError('connectError', 'Code invalide (6 caractères après le préfixe).'); return; }
   if (!peer) return;
@@ -487,59 +486,68 @@ function connectToOther(rawCode) {
   }
 
   showFlex('sendConnStatus');
+  setText('sendConnText', isLikelyCellular() ? 'Réseau mobile — connexion via relay…' : 'Connexion en cours…');
   hideError('connectError');
+  startSendRace(code);
+}
 
-  // Réseau mobile (CGNAT) → relay direct, pas de tentative PeerJS vouée à l'échec
-  if (isLikelyCellular()) {
-    setText('sendConnText', 'Réseau mobile détecté — connexion via relay…');
-    relaySendTo(code.toLowerCase());
-    return;
-  }
+// ── Race : PeerJS vs Relay — le premier connecté gagne ──
+function startSendRace(code) {
+  const skipPeer = isLikelyCellular();
+  let won        = false;
+  let raceWs     = null;
 
-  setText('sendConnText', 'Connexion en cours…');
-  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
-
-  // Fonction de bascule relay (réutilisée par timeout ET ICE failure)
-  let relayTimer = null;
-  const fallbackToRelay = () => {
-    if (peerReady) return;
-    clearTimeout(relayTimer);
-    toast('Connexion directe échouée, bascule sur le relay…', 'success');
-    setText('sendConnText', 'Bascule sur le relay…');
-    try { if (conn) conn.close(); } catch (_) {}
-    conn = null;
-    relaySendTo(code.toLowerCase());
+  const winPeer = () => {
+    if (won) return;
+    won = true;
+    if (raceWs) { try { raceWs.close(); } catch(_) {} raceWs = null; }
+    onSendConnected();
+    toast('Connecté !', 'success');
   };
 
-  // Timeout réduit à 4 s (8 s était trop long sur mobile/réseau lent)
-  relayTimer = setTimeout(fallbackToRelay, 4000);
-
-  conn.on('open', () => {
-    clearTimeout(relayTimer);
+  const winRelay = () => {
+    if (won) return;
+    won = true;
+    // Fermer PeerJS silencieusement
+    try { if (conn) conn.close(); } catch(_) {} conn = null;
+    try { if (peer) peer.destroy(); } catch(_) {} peer = null;
+    // Activer relay comme canal principal
+    closeRelay();
+    relayWs   = raceWs;
+    raceWs    = null;
+    relayMode = 'send';
+    peerReady = true;
     hide('sendConnStatus');
-    onSendConnected();
-    toast('Destinataire connecté !', 'success');
-  });
+    hide('stepConnect');
+    stopQRScanner();
+    showBlock('btnSend');
+    updateSendBtn();
+    toast('Connecté via relay ⚡', 'success');
+  };
 
-  // Détection rapide d'un échec ICE (négociation WebRTC échouée)
-  conn.on('iceStateChanged', state => {
-    if ((state === 'failed' || state === 'disconnected') && !peerReady) {
-      fallbackToRelay();
-    }
-  });
+  // ── Bras 1 : PeerJS (ignoré si réseau mobile) ──
+  if (!skipPeer && peer && !peer.disconnected) {
+    conn = peer.connect(code, { reliable: true, serialization: 'raw' });
+    conn.on('open', winPeer);
+    conn.on('close', () => {
+      if (!sendStarted && !won) {
+        peerReady = false; conn = null;
+        hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
+      }
+    });
+    conn.on('error', () => { /* relay peut encore gagner */ });
+  }
 
-  conn.on('close', () => {
-    if (!sendStarted) {
-      peerReady = false; conn = null;
-      hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
-      toast('Connexion fermée par le destinataire.');
-    }
-  });
-  conn.on('error', e => {
-    toast('Erreur : ' + e.message);
-    peerReady = false; conn = null;
-    hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
-  });
+  // ── Bras 2 : Relay (toujours lancé en parallèle) ──
+  try {
+    raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=sender`);
+    raceWs.binaryType = 'arraybuffer';
+    raceWs.onmessage  = (evt) => {
+      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') winRelay();
+    };
+    raceWs.onerror = () => { if (!won) raceWs = null; };
+    raceWs.onclose = () => { if (!won) raceWs = null; };
+  } catch(_) {}
 }
 
 function onSendConnected() {
@@ -617,6 +625,11 @@ function updateSendBtn() {
 
 // ── Send logic ──────────────────────────────
 function doSend() {
+  // Relay a gagné la race → on lui délègue directement
+  if (!conn && relayWs && relayWs.readyState === WebSocket.OPEN && relayMode === 'send') {
+    doSendViaWs(relayWs);
+    return;
+  }
   if (!conn || selectedFiles.length === 0 || !peerReady || sendStarted) return;
   sendStarted = true;
   const btn = document.getElementById('btnSend');
@@ -766,7 +779,6 @@ function connectToOtherAsRecv(rawCode) {
     return;
   }
 
-  // PeerJS
   const code = parsed.code;
   if (code.length !== 6) { showError('recvConnectError', 'Code invalide (6 caractères après le préfixe).'); return; }
   if (!peer) return;
@@ -780,47 +792,56 @@ function connectToOtherAsRecv(rawCode) {
   hide('stepRecvConnect');
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⏳');
+  setText('recvConnText', isLikelyCellular() ? 'Réseau mobile — connexion via relay…' : 'Connexion en cours…');
   hideError('recvConnectError');
+  startRecvRace(code);
+}
 
-  // Réseau mobile → relay direct
-  if (isLikelyCellular()) {
-    setText('recvConnText', 'Réseau mobile détecté — connexion via relay…');
-    relayReceiveFrom(code.toLowerCase());
-    return;
-  }
+// ── Race réception : PeerJS vs Relay ──
+function startRecvRace(code) {
+  const skipPeer = isLikelyCellular();
+  let won    = false;
+  let raceWs = null;
 
-  setText('recvConnText', 'Connexion en cours…');
-  conn = peer.connect(code, { reliable: true, serialization: 'raw' });
-
-  let relayTimer = null;
-  const fallbackToRelay = () => {
-    if (totalRecvBytes > 0) return;
-    clearTimeout(relayTimer);
-    toast('Connexion directe échouée, bascule sur le relay…', 'success');
-    setText('recvConnText', 'Bascule sur le relay…');
-    try { if (conn) conn.close(); } catch (_) {}
-    conn = null;
-    relayReceiveFrom(code.toLowerCase());
+  const winPeer = () => {
+    if (won) return;
+    won = true;
+    if (raceWs) { try { raceWs.close(); } catch(_) {} raceWs = null; }
+    setupRecvConn(conn);
   };
 
-  relayTimer = setTimeout(fallbackToRelay, 4000);
+  const winRelay = () => {
+    if (won) return;
+    won = true;
+    try { if (conn) conn.close(); } catch(_) {} conn = null;
+    try { if (peer) peer.destroy(); } catch(_) {} peer = null;
+    closeRelay();
+    relayWs   = raceWs;
+    raceWs    = null;
+    relayMode = 'recv';
+    setText('recvConnIcon', '⚡');
+    setText('recvConnText', 'Connecté via relay — réception…');
+    setupRecvRelayWs(relayWs);
+    toast('Connecté via relay ⚡', 'success');
+  };
 
-  conn.on('open', () => {
-    clearTimeout(relayTimer);
-    setupRecvConn(conn);
-  });
+  // ── Bras 1 : PeerJS (ignoré si réseau mobile) ──
+  if (!skipPeer && peer && !peer.disconnected) {
+    conn = peer.connect(code, { reliable: true, serialization: 'raw' });
+    conn.on('open', winPeer);
+    conn.on('error', () => { /* relay peut encore gagner */ });
+  }
 
-  // Détection rapide d'un échec ICE
-  conn.on('iceStateChanged', state => {
-    if ((state === 'failed' || state === 'disconnected') && totalRecvBytes === 0) {
-      fallbackToRelay();
-    }
-  });
-
-  conn.on('error', e => {
-    toast('Erreur : ' + e.message);
-    showBlock('stepRecvConnect'); hide('recvConnStatus');
-  });
+  // ── Bras 2 : Relay (toujours lancé en parallèle) ──
+  try {
+    raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=receiver`);
+    raceWs.binaryType = 'arraybuffer';
+    raceWs.onmessage  = (evt) => {
+      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') winRelay();
+    };
+    raceWs.onerror = () => { if (!won) raceWs = null; };
+    raceWs.onclose = () => { if (!won) raceWs = null; };
+  } catch(_) {}
 }
 
 function setupRecvConn(c) {
@@ -1124,6 +1145,107 @@ function startSendRelayFallback(code) {
   };
 
   relayFallbackWs.onerror = () => {};
+}
+
+// ═══════════════════════════════════════════
+//  ENVOI / RÉCEPTION GÉNÉRIQUE VIA WEBSOCKET
+//  Partagé par : relay fallback, relay direct, race winner
+// ═══════════════════════════════════════════
+
+// Envoie tous les fichiers sélectionnés sur un WS déjà ouvert (post PEER_CONNECTED)
+async function doSendViaWs(ws) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || selectedFiles.length === 0 || sendStarted) return;
+  sendStarted = true;
+  const btn = document.getElementById('btnSend');
+  if (btn) btn.disabled = true;
+
+  const pb = document.getElementById('sendProgress');
+  pb.style.display = 'flex'; pb.classList.add('show');
+
+  const totalFiles    = selectedFiles.length;
+  const totalAllBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+  let totalSent = 0;
+  const tStart  = Date.now();
+
+  for (let fi = 0; fi < totalFiles; fi++) {
+    const file = selectedFiles[fi];
+    ws.send(JSON.stringify({ name: file.name, size: file.size }));
+    let offset = 0;
+    while (offset < file.size) {
+      const end = Math.min(offset + RELAY_CHUNK, file.size);
+      const buf = await file.slice(offset, end).arrayBuffer();
+      while (ws.bufferedAmount > 1024 * 1024)
+        await new Promise(r => setTimeout(r, 50));
+      ws.send(buf);
+      offset    += buf.byteLength;
+      totalSent += buf.byteLength;
+      const pct     = Math.min(100, Math.round(totalSent / totalAllBytes * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('sendProgPct', pct + '%');
+      document.getElementById('sendProgFill').style.width = pct + '%';
+      setText('sendProgLabel', `Fichier ${fi + 1}/${totalFiles} — ${file.name}`);
+      setText('sendProgSub',   `${fmtSize(totalSent)} / ${fmtSize(totalAllBytes)}  ·  ${fmtSpeed(totalSent / elapsed)}`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  hide('sendProgress');
+  const n = totalFiles;
+  setText('sendDoneName', `${n} fichier${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} !`);
+  showFlex('sendDone');
+  try { ws.close(); } catch(_) {}
+}
+
+// Configure la réception de fichiers sur un WS déjà connecté (post PEER_CONNECTED)
+function setupRecvRelayWs(ws) {
+  let fileName = '', fileSize = 0, chunks = [], bytesRecv = 0, tStart = 0;
+
+  ws.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      if (event.data === 'PEER_DISCONNECTED') {
+        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
+          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          hide('recvProgress');
+          showFileGallery();
+        } else {
+          toast('L\'expéditeur s\'est déconnecté.');
+          showBlock('stepRecvConnect'); hide('recvConnStatus');
+        }
+        return;
+      }
+      try {
+        const meta = JSON.parse(event.data);
+        if (meta.name && meta.size !== undefined) {
+          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          fileName = meta.name; fileSize = meta.size;
+          chunks = []; bytesRecv = 0; tStart = Date.now();
+          hide('recvConnStatus');
+          showFlex('recvProgress');
+          setText('recvProgLabel', `Réception — ${meta.name}`);
+          setText('recvProgPct', '0%');
+          document.getElementById('recvProgFill').style.width = '0';
+        }
+      } catch (_) {}
+    } else {
+      if (!fileName) return;
+      chunks.push(event.data);
+      bytesRecv += event.data.byteLength;
+      const pct     = Math.min(100, Math.round(bytesRecv / (fileSize || 1) * 100));
+      const elapsed = (Date.now() - tStart) / 1000 || 0.001;
+      setText('recvProgPct', pct + '%');
+      document.getElementById('recvProgFill').style.width = pct + '%';
+      setText('recvProgSub', `${fmtSize(bytesRecv)} / ${fmtSize(fileSize)}  ·  ${fmtSpeed(bytesRecv / elapsed)}`);
+      if (bytesRecv >= fileSize) {
+        finalizeRelayFile(fileName, fileSize, chunks);
+        fileName = ''; chunks = []; bytesRecv = 0;
+        hide('recvProgress');
+        showFileGallery();
+      }
+    }
+  };
+  ws.onerror = () => {
+    toast('Erreur de connexion au relay.');
+    showBlock('stepRecvConnect'); hide('recvConnStatus');
+  };
 }
 
 async function doSendViaRelayFallback() {
