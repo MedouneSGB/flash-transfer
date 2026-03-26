@@ -159,6 +159,21 @@ function escHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ── Détection réseau mobile ──────────────────
+// Retourne true si l'appareil est probablement sur données mobiles
+// ou sur une connexion trop lente pour établir WebRTC (CGNAT/opérateur).
+// Basé sur Network Information API (Chrome/Android) — silencieux sinon.
+function isLikelyCellular() {
+  try {
+    const nc = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!nc) return false;
+    return nc.type === 'cellular'
+        || nc.saveData === true
+        || nc.effectiveType === 'slow-2g'
+        || nc.effectiveType === '2g';
+  } catch (_) { return false; }
+}
+
 function validateFile(file) {
   const ext = ('.' + file.name.split('.').pop()).toLowerCase();
   if (!ACCEPTED_MIME.has(file.type) && !ACCEPTED_EXT.includes(ext))
@@ -472,16 +487,47 @@ function connectToOther(rawCode) {
   }
 
   showFlex('sendConnStatus');
-  setText('sendConnText', 'Connexion en cours…');
   hideError('connectError');
 
+  // Réseau mobile (CGNAT) → relay direct, pas de tentative PeerJS vouée à l'échec
+  if (isLikelyCellular()) {
+    setText('sendConnText', 'Réseau mobile détecté — connexion via relay…');
+    relaySendTo(code.toLowerCase());
+    return;
+  }
+
+  setText('sendConnText', 'Connexion en cours…');
   conn = peer.connect(code, { reliable: true, serialization: 'raw' });
 
+  // Fonction de bascule relay (réutilisée par timeout ET ICE failure)
+  let relayTimer = null;
+  const fallbackToRelay = () => {
+    if (peerReady) return;
+    clearTimeout(relayTimer);
+    toast('Connexion directe échouée, bascule sur le relay…', 'success');
+    setText('sendConnText', 'Bascule sur le relay…');
+    try { if (conn) conn.close(); } catch (_) {}
+    conn = null;
+    relaySendTo(code.toLowerCase());
+  };
+
+  // Timeout réduit à 4 s (8 s était trop long sur mobile/réseau lent)
+  relayTimer = setTimeout(fallbackToRelay, 4000);
+
   conn.on('open', () => {
+    clearTimeout(relayTimer);
     hide('sendConnStatus');
     onSendConnected();
     toast('Destinataire connecté !', 'success');
   });
+
+  // Détection rapide d'un échec ICE (négociation WebRTC échouée)
+  conn.on('iceStateChanged', state => {
+    if ((state === 'failed' || state === 'disconnected') && !peerReady) {
+      fallbackToRelay();
+    }
+  });
+
   conn.on('close', () => {
     if (!sendStarted) {
       peerReady = false; conn = null;
@@ -494,16 +540,6 @@ function connectToOther(rawCode) {
     peerReady = false; conn = null;
     hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
   });
-
-  setTimeout(() => {
-    if (conn && !conn.open && !peerReady) {
-      toast('Connexion directe échouée, bascule sur le relay…', 'success');
-      setText('sendConnText', 'Bascule sur le relay…');
-      try { conn.close(); } catch (_) {}
-      conn = null;
-      relaySendTo(code.toLowerCase());
-    }
-  }, 8000);
 }
 
 function onSendConnected() {
@@ -744,26 +780,47 @@ function connectToOtherAsRecv(rawCode) {
   hide('stepRecvConnect');
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⏳');
-  setText('recvConnText', 'Connexion en cours…');
   hideError('recvConnectError');
 
+  // Réseau mobile → relay direct
+  if (isLikelyCellular()) {
+    setText('recvConnText', 'Réseau mobile détecté — connexion via relay…');
+    relayReceiveFrom(code.toLowerCase());
+    return;
+  }
+
+  setText('recvConnText', 'Connexion en cours…');
   conn = peer.connect(code, { reliable: true, serialization: 'raw' });
 
-  conn.on('open', () => setupRecvConn(conn));
+  let relayTimer = null;
+  const fallbackToRelay = () => {
+    if (totalRecvBytes > 0) return;
+    clearTimeout(relayTimer);
+    toast('Connexion directe échouée, bascule sur le relay…', 'success');
+    setText('recvConnText', 'Bascule sur le relay…');
+    try { if (conn) conn.close(); } catch (_) {}
+    conn = null;
+    relayReceiveFrom(code.toLowerCase());
+  };
+
+  relayTimer = setTimeout(fallbackToRelay, 4000);
+
+  conn.on('open', () => {
+    clearTimeout(relayTimer);
+    setupRecvConn(conn);
+  });
+
+  // Détection rapide d'un échec ICE
+  conn.on('iceStateChanged', state => {
+    if ((state === 'failed' || state === 'disconnected') && totalRecvBytes === 0) {
+      fallbackToRelay();
+    }
+  });
+
   conn.on('error', e => {
     toast('Erreur : ' + e.message);
     showBlock('stepRecvConnect'); hide('recvConnStatus');
   });
-
-  setTimeout(() => {
-    if (conn && !conn.open && totalRecvBytes === 0) {
-      toast('Connexion directe échouée, bascule sur le relay…', 'success');
-      setText('recvConnText', 'Bascule sur le relay…');
-      try { conn.close(); } catch (_) {}
-      conn = null;
-      relayReceiveFrom(code.toLowerCase());
-    }
-  }, 8000);
 }
 
 function setupRecvConn(c) {
