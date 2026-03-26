@@ -424,6 +424,8 @@ function initSend() {
       }
     });
     c.on('error', e => {
+      // Ignorer les erreurs de connexion fermée si le transfert est déjà terminé
+      if (sendStarted && currentSendIdx >= sendQueue.length) return;
       toast('Erreur connexion : ' + e.message);
       if (!sendStarted) {
         peerReady = false; connectedOnce = false; conn = null;
@@ -593,13 +595,18 @@ function doSend() {
   const pb = document.getElementById('sendProgress');
   pb.style.display = 'flex'; pb.classList.add('show');
 
-  conn.send(JSON.stringify({ __ft: 'count', total: sendQueue.length, totalBytes: totalSendBytes }));
+  safeSend(JSON.stringify({ __ft: 'count', total: sendQueue.length, totalBytes: totalSendBytes }));
   sendNextFile();
+}
+
+function safeSend(data) {
+  if (!conn || !conn.open) return;
+  try { conn.send(data); } catch (_) {}
 }
 
 function sendNextFile() {
   if (currentSendIdx >= sendQueue.length) {
-    conn.send(JSON.stringify({ __ft: 'all-done' }));
+    safeSend(JSON.stringify({ __ft: 'all-done' }));
     hide('sendProgress');
     const n = sendQueue.length;
     setText('sendDoneName', `${n} fichier${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} avec succès !`);
@@ -608,7 +615,7 @@ function sendNextFile() {
   }
 
   const file = sendQueue[currentSendIdx];
-  conn.send(JSON.stringify({
+  safeSend(JSON.stringify({
     __ft: 'meta',
     name: file.name, size: file.size, mime: file.type,
     index: currentSendIdx, total: sendQueue.length,
@@ -618,8 +625,7 @@ function sendNextFile() {
   const reader = new FileReader();
 
   reader.onload = e => {
-    try { conn.send(e.target.result); }
-    catch (err) { toast('Erreur envoi : ' + err.message); return; }
+    safeSend(e.target.result);
     const bytes = e.target.result.byteLength;
     offset    += bytes;
     sentBytes += bytes;
@@ -627,7 +633,7 @@ function sendNextFile() {
     if (offset < file.size) {
       reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK_SIZE));
     } else {
-      conn.send(JSON.stringify({ __ft: 'done', index: currentSendIdx }));
+      safeSend(JSON.stringify({ __ft: 'done', index: currentSendIdx }));
       currentSendIdx++;
       setTimeout(sendNextFile, 0);
     }
