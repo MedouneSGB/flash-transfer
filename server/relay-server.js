@@ -94,14 +94,15 @@ wss.on('connection', (ws, req) => {
   const room = rooms.get(code);
   room[role] = ws;
 
-  // Notify sender when receiver joins
+  // Notify both peers when the pair is complete
   if (role === 'receiver' && room.sender?.readyState === WebSocket.OPEN) {
     room.sender.send('PEER_CONNECTED');
+    ws.send('PEER_CONNECTED');
     console.log(`[relay] Room ${code}: peer connected, relay active`);
   }
-  // If sender joins after receiver, notify
   if (role === 'sender' && room.receiver?.readyState === WebSocket.OPEN) {
     ws.send('PEER_CONNECTED');
+    room.receiver.send('PEER_CONNECTED');
   }
 
   ws.on('message', (data, isBinary) => {
