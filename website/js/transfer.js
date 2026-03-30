@@ -525,10 +525,24 @@ function startSendRace(code) {
     toast('Connecté via relay ⚡', 'success');
   };
 
+  // ── Timeout 20s ──
+  const timeout = setTimeout(() => {
+    if (won) return;
+    won = true;
+    try { if (conn) conn.close(); } catch(_) {}
+    try { if (raceWs) raceWs.close(); } catch(_) {}
+    conn = null; raceWs = null;
+    hide('sendConnStatus');
+    showBlock('stepConnect');
+    showError('connectError', 'Connexion impossible — vérifiez que le destinataire est bien en mode réception et réessayez.');
+  }, 20000);
+
+  const clearRaceTimeout = () => clearTimeout(timeout);
+
   // ── Bras 1 : PeerJS (ignoré si réseau mobile) ──
   if (!skipPeer && peer && !peer.disconnected) {
     conn = peer.connect(code, { reliable: true, serialization: 'raw' });
-    conn.on('open', winPeer);
+    conn.on('open', () => { clearRaceTimeout(); winPeer(); });
     conn.on('close', () => {
       if (!sendStarted && !won) {
         peerReady = false; conn = null;
@@ -543,7 +557,7 @@ function startSendRace(code) {
     raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=sender`);
     raceWs.binaryType = 'arraybuffer';
     raceWs.onmessage  = (evt) => {
-      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') winRelay();
+      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
     };
     raceWs.onerror = () => { if (!won) raceWs = null; };
     raceWs.onclose = () => { if (!won) raceWs = null; };
@@ -825,10 +839,24 @@ function startRecvRace(code) {
     toast('Connecté via relay ⚡', 'success');
   };
 
+  // ── Timeout 20s ──
+  const timeout = setTimeout(() => {
+    if (won) return;
+    won = true;
+    try { if (conn) conn.close(); } catch(_) {}
+    try { if (raceWs) raceWs.close(); } catch(_) {}
+    conn = null; raceWs = null;
+    hide('recvConnStatus');
+    showBlock('stepRecvConnect');
+    showError('recvConnectError', 'Connexion impossible — vérifiez que l\'expéditeur est bien en mode envoi et réessayez.');
+  }, 20000);
+
+  const clearRaceTimeout = () => clearTimeout(timeout);
+
   // ── Bras 1 : PeerJS (ignoré si réseau mobile) ──
   if (!skipPeer && peer && !peer.disconnected) {
     conn = peer.connect(code, { reliable: true, serialization: 'raw' });
-    conn.on('open', winPeer);
+    conn.on('open', () => { clearRaceTimeout(); winPeer(); });
     conn.on('error', () => { /* relay peut encore gagner */ });
   }
 
@@ -837,7 +865,7 @@ function startRecvRace(code) {
     raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=receiver`);
     raceWs.binaryType = 'arraybuffer';
     raceWs.onmessage  = (evt) => {
-      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') winRelay();
+      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
     };
     raceWs.onerror = () => { if (!won) raceWs = null; };
     raceWs.onclose = () => { if (!won) raceWs = null; };
@@ -1479,6 +1507,9 @@ function guessMime(name) {
 //  INIT (DOMContentLoaded)
 // ═══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+
+  // ── Ping relay au démarrage pour éviter le cold start (Render.com free tier) ──
+  fetch(RELAY_URL.replace('wss://', 'https://').replace('ws://', 'http://') + '/health').catch(() => {});
 
   // ── Mode selection ──
   document.getElementById('btnModeSend').addEventListener('click', initSend);
