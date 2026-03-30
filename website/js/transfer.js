@@ -413,6 +413,9 @@ function initSend() {
   const dispCode  = 'W' + myCode;     // ex: WABC123 (code affiché + partagé)
   document.getElementById('sendCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
 
+  // Démarrer le relay fallback immédiatement (sans attendre PeerJS)
+  startSendRelayFallback(myCode.toLowerCase());
+
   peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
   peer.on('open', () => {
@@ -421,8 +424,6 @@ function initSend() {
     const copyBtn = document.getElementById('btnCopySendCode');
     if (copyBtn) { copyBtn.disabled = false; copyBtn.dataset.code = dispCode; }
     generateQRCode(dispCode, 'qrCanvasSend');
-    // Écouter aussi en relay (fallback si PeerJS échoue ou si Tauri se connecte)
-    startSendRelayFallback(myCode.toLowerCase());
   });
 
   peer.on('connection', c => {
@@ -746,6 +747,9 @@ function initRecv() {
   document.getElementById('recvCodeDisplay').innerHTML = '<div class="code-spinner"></div>';
   setText('recvQRStatus', 'Initialisation…');
 
+  // Démarrer le relay fallback immédiatement (sans attendre PeerJS)
+  startRecvRelayFallback(myCode.toLowerCase());
+
   peer = new Peer(myCode, { debug: 0, config: ICE_CONFIG });
 
   peer.on('open', () => {
@@ -755,7 +759,6 @@ function initRecv() {
     const copyBtn = document.getElementById('btnCopyRecvCode');
     if (copyBtn) { copyBtn.disabled = false; copyBtn.dataset.code = dispCode; }
     generateQRCode(dispCode, 'qrCanvas');
-    startRecvRelayFallback(myCode.toLowerCase());
   });
 
   peer.on('connection', c => {
@@ -1199,7 +1202,13 @@ function startSendRelayFallback(code) {
 
 // Envoie tous les fichiers sélectionnés sur un WS déjà ouvert (post PEER_CONNECTED)
 async function doSendViaWs(ws) {
-  if (!ws || ws.readyState !== WebSocket.OPEN || selectedFiles.length === 0 || sendStarted) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast('Connexion perdue — réessayez.', 'error');
+    peerReady = false; sendStarted = false;
+    hide('sendConnStatus'); showBlock('stepConnect'); updateSendBtn();
+    return;
+  }
+  if (selectedFiles.length === 0 || sendStarted) return;
   sendStarted = true;
   const btn = document.getElementById('btnSend');
   if (btn) btn.disabled = true;
