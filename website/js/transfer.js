@@ -1141,6 +1141,15 @@ function startRecvRelayFallback(code) {
   };
 
   relayFallbackWs.onerror = () => {};
+  relayFallbackWs.onclose = () => {
+    if (connectedOnce || mode !== 'recv') return;
+    // Reconnexion automatique si la connexion est perdue avant que le transfert commence
+    setTimeout(() => {
+      if (!connectedOnce && mode === 'recv' && relayFallbackCode === code) {
+        startRecvRelayFallback(code);
+      }
+    }, 3000);
+  };
 }
 
 function startSendRelayFallback(code) {
@@ -1173,6 +1182,14 @@ function startSendRelayFallback(code) {
   };
 
   relayFallbackWs.onerror = () => {};
+  relayFallbackWs.onclose = () => {
+    if (peerReady || mode !== 'send') return;
+    setTimeout(() => {
+      if (!peerReady && mode === 'send' && relayFallbackCode === code) {
+        startSendRelayFallback(code);
+      }
+    }, 3000);
+  };
 }
 
 // ═══════════════════════════════════════════
