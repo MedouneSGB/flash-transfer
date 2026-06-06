@@ -61,6 +61,18 @@ pub async fn start_lan_discovery(app: AppHandle, name: String) -> Result<(), Str
             }).unwrap_or_default();
             let msg_bytes = msg.as_bytes();
 
+            // Derive the /24 broadcast address of the local interface dynamically
+            // (e.g. 192.168.5.42 -> 192.168.5.255) so discovery works on any subnet,
+            // not just the hardcoded fallbacks below.
+            let dyn_bcast = {
+                let parts: Vec<&str> = local_ip.split('.').collect();
+                if parts.len() == 4 && parts.iter().all(|p| p.parse::<u8>().is_ok()) {
+                    Some(format!("{}.{}.{}.255:45678", parts[0], parts[1], parts[2]))
+                } else {
+                    None
+                }
+            };
+
             let mut interval = tokio::time::interval(
                 tokio::time::Duration::from_millis(BROADCAST_INTERVAL_MS)
             );
@@ -70,7 +82,11 @@ pub async fn start_lan_discovery(app: AppHandle, name: String) -> Result<(), Str
                     _ = rx.recv() => break,
                     _ = interval.tick() => {
                         let _ = sock.send_to(msg_bytes, "255.255.255.255:45678").await;
-                        // Also try common subnet broadcasts
+                        // Dynamically-derived local /24 broadcast
+                        if let Some(ref addr) = dyn_bcast {
+                            let _ = sock.send_to(msg_bytes, addr.as_str()).await;
+                        }
+                        // Also try common subnet broadcasts as a fallback
                         let _ = sock.send_to(msg_bytes, "192.168.1.255:45678").await;
                         let _ = sock.send_to(msg_bytes, "192.168.0.255:45678").await;
                         let _ = sock.send_to(msg_bytes, "10.0.0.255:45678").await;
