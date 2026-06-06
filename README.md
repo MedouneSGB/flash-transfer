@@ -2,7 +2,7 @@
 
 > Transfert de fichiers ultra-rapide entre appareils — LAN & Internet, sans cloud, sans compte
 
-![Flash Transfer](https://img.shields.io/badge/version-1.3.2-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
+![Flash Transfer](https://img.shields.io/badge/version-1.4.2-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
 ![Tauri](https://img.shields.io/badge/Tauri_2-0D0D0D?style=for-the-badge&logo=tauri&logoColor=FFD700)
 ![Rust](https://img.shields.io/badge/Rust-0D0D0D?style=for-the-badge&logo=rust&logoColor=FFD700)
 ![Platform](https://img.shields.io/badge/Windows_%7C_macOS_%7C_Linux-0D0D0D?style=for-the-badge&logoColor=FFD700)
@@ -195,12 +195,12 @@ npm run build
 Les installeurs générés se trouvent dans :
 ```
 src-tauri/target/release/bundle/
-├── nsis/          → Flash Transfer_1.3.2_x64-setup.exe  (Windows)
-├── msi/           → Flash Transfer_1.3.2_x64.msi        (Windows)
-├── dmg/           → Flash Transfer_1.3.2_x64.dmg        (macOS Intel)
-├── dmg/           → Flash Transfer_1.3.2_aarch64.dmg    (macOS Apple Silicon)
-├── appimage/      → flash-transfer_1.3.2_amd64.AppImage (Linux)
-└── deb/           → flash-transfer_1.3.2_amd64.deb      (Linux)
+├── nsis/          → Flash Transfer_1.4.2_x64-setup.exe  (Windows)
+├── msi/           → Flash Transfer_1.4.2_x64.msi        (Windows)
+├── dmg/           → Flash Transfer_1.4.2_x64.dmg        (macOS Intel)
+├── dmg/           → Flash Transfer_1.4.2_aarch64.dmg    (macOS Apple Silicon)
+├── appimage/      → flash-transfer_1.4.2_amd64.AppImage (Linux)
+└── deb/           → flash-transfer_1.4.2_amd64.deb      (Linux)
 ```
 
 ### CI/CD automatique
@@ -208,8 +208,8 @@ src-tauri/target/release/bundle/
 Le workflow GitHub Actions (`.github/workflows/release.yml`) se déclenche sur chaque tag `v*` et produit les binaires pour **Windows, macOS Intel, macOS Apple Silicon et Linux** en parallèle.
 
 ```bash
-git tag v1.3.2
-git push origin v1.3.2
+git tag v1.4.2
+git push origin v1.4.2
 ```
 
 ---

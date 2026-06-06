@@ -1,11 +1,15 @@
 {
   "name": "flash-transfer",
-  "version": "1.0.0",
+  "version": "1.4.2",
   "description": "Flash⚡Transfer - Ultra-fast file transfer app",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "version:print": "node scripts/bump-version.mjs --print",
+    "version:patch": "node scripts/bump-version.mjs patch",
+    "version:minor": "node scripts/bump-version.mjs minor",
+    "version:major": "node scripts/bump-version.mjs major"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
