@@ -107,7 +107,7 @@ flash-transfer/
 │   ├── css/style.css
 │   └── js/transfer.js           # Logique WebRTC + PeerJS
 ├── .github/workflows/
-│   └── release.yml              # CI/CD : build multi-plateforme sur tag v*
+│   └── release.yml              # CI/CD : versioning auto + build multi-plateforme (push master)
 ├── render.yaml                  # Config déploiement Render.com
 ├── run.bat                      # Lancer en dev (Windows)
 └── build.bat                    # Build production (Windows)
@@ -205,14 +205,23 @@ src-tauri/target/release/bundle/
 └── deb/           → flash-transfer_1.5.0_amd64.deb      (Linux)
 ```
 
-### CI/CD automatique
+### CI/CD & versioning automatique
 
-Le workflow GitHub Actions (`.github/workflows/release.yml`) se déclenche sur chaque tag `v*` et produit les binaires pour **Windows, macOS Intel, macOS Apple Silicon et Linux** en parallèle.
+Le workflow GitHub Actions (`.github/workflows/release.yml`) se déclenche à chaque **push sur `master`** :
+
+1. **Job `version`** — résout la version à publier. Si la version de `tauri.conf.json` n'a pas encore de tag (bump manuel via `npm run version:*`), il la publie telle quelle ; sinon il calcule la version suivante depuis les messages de commit (Conventional Commits : `feat`/`[minor]` → minor, `BREAKING CHANGE`/`[major]`/`type!:` → major, sinon patch), bump les fichiers, commit et tague.
+2. **Job `build`** — construit les binaires **Windows, macOS Intel, macOS Apple Silicon et Linux** en parallèle et publie la release GitHub. Le build s'enchaîne dans le même run, donc **aucun PAT n'est requis** (un secret optionnel `RELEASE_PAT` reste supporté).
+
+Bump manuel de la version (synchronise `package.json`, `Cargo.toml`, `tauri.conf.json`, `README`) :
 
 ```bash
-git tag v1.5.0
-git push origin v1.5.0
+npm run version:patch   # 1.5.0 -> 1.5.1
+npm run version:minor   # 1.5.0 -> 1.6.0
+npm run version:major   # 1.5.0 -> 2.0.0
+# puis commit + push sur master → la CI tague et publie automatiquement
 ```
+
+> Astuce : inclure `[skip version]` dans un message de commit pour ne pas déclencher de release.
 
 ---
 

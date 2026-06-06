@@ -1,16 +1,115 @@
-name: Build & Release Flash Transfer
+name: Release Flash Transfer
+
+# Versioning automatique + build multi-plateforme, en UN SEUL run :
+#
+#   1. Job `version` : à chaque push sur `master` (ou via déclenchement manuel),
+#      résout la version à publier :
+#        - si la version courante (tauri.conf.json) n'a PAS encore de tag
+#          (= elle vient d'être bumpée manuellement) → on la tague telle quelle ;
+#        - sinon → on calcule la prochaine version (SemVer) depuis les messages
+#          de commit (Conventional Commits), on bump les fichiers, on commit et tague.
+#      Le tag est créé puis le job `build` enchaîne dans le même run — donc AUCUN
+#      PAT n'est requis (on ne dépend pas du déclenchement croisé par un tag poussé
+#      avec GITHUB_TOKEN, que GitHub n'autorise pas).
+#
+#   2. Job `build` : construit les binaires Windows / macOS (Intel + ARM) / Linux
+#      et publie la release GitHub attachée au tag résolu.
+#
+# Pour sauter le versioning sur un commit : inclure `[skip version]` dans le message.
+#
+# Règles de bump : BREAKING CHANGE / `[major]` / `type!:` → major ;
+#                  `feat:` / `[minor]` → minor ; sinon → patch.
 
 on:
   push:
-    tags:
-      - 'v*'        # déclenche sur v1.0.0, v1.2.3, etc.
-  workflow_dispatch: # permet de déclencher manuellement
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Type de bump (auto = depuis les commits)'
+        required: false
+        default: 'auto'
+        type: choice
+        options: [auto, patch, minor, major]
 
 permissions:
-  contents: write   # nécessaire pour créer des releases GitHub
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  # ── 1. Résolution / création de la version + tag ───────────────────────────
+  version:
+    # Évite la boucle : on ignore le commit de bump généré par ce workflow.
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release):') &&
+      !contains(github.event.head_commit.message, '[skip version]')
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      do_build: ${{ steps.resolve.outputs.do_build }}
+    steps:
+      - name: Checkout (historique complet pour lire les tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Résoudre et taguer la version
+        id: resolve
+        run: |
+          set -e
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          cur=$(node scripts/bump-version.mjs --print)
+
+          if git rev-parse "v$cur" >/dev/null 2>&1; then
+            # La version courante est déjà publiée → calcule la suivante.
+            forced="${{ github.event.inputs.bump }}"
+            if [ -n "$forced" ] && [ "$forced" != "auto" ]; then
+              btype="$forced"
+            else
+              last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+              if [ -z "$last_tag" ]; then range="HEAD"; else range="${last_tag}..HEAD"; fi
+              log=$(git log --format='%B' "$range" 2>/dev/null || echo "")
+              if echo "$log" | grep -qiE 'BREAKING CHANGE|\[major\]|^[a-z]+!:'; then
+                btype=major
+              elif echo "$log" | grep -qiE '^feat(\(|:)|\[minor\]'; then
+                btype=minor
+              else
+                btype=patch
+              fi
+            fi
+            new=$(node scripts/bump-version.mjs "$btype")
+            git add -A
+            git commit -m "chore(release): v$new [skip version]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            # Version déjà bumpée (non encore taguée) → on la publie telle quelle.
+            new="$cur"
+          fi
+
+          if git rev-parse "v$new" >/dev/null 2>&1; then
+            echo "Le tag v$new existe déjà — pas de re-tag."
+          else
+            git tag -a "v$new" -m "Flash Transfer v$new"
+            git push origin "v$new"
+          fi
+          echo "tag=v$new" >> "$GITHUB_OUTPUT"
+          echo "do_build=true" >> "$GITHUB_OUTPUT"
+
+  # ── 2. Build multi-plateforme + publication de la release ──────────────────
   build:
+    needs: version
+    if: needs.version.outputs.do_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -32,8 +131,10 @@ jobs:
     name: Build ${{ matrix.name }}
 
     steps:
-      - name: Checkout
+      - name: Checkout (tag résolu)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       # ── Rust ───────────────────────────────────────────────────────────────
       - name: Install Rust
@@ -94,8 +195,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Flash⚡Transfer ${{ github.ref_name }}'
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: 'Flash⚡Transfer ${{ needs.version.outputs.tag }}'
           releaseBody: |
             ## 📥 Téléchargements
 
