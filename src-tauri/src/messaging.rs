@@ -71,7 +71,8 @@ fn now_ms() -> u64 {
 fn gen_id() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    (0..8).map(|_| format!("{:x}", rng.gen::<u8>())).collect()
+    // {:02x} : zero-padded so every byte yields 2 hex chars (16 chars, full entropy).
+    (0..8).map(|_| format!("{:02x}", rng.gen::<u8>())).collect()
 }
 
 async fn read_msg(s: &mut TcpStream) -> Result<String, String> {

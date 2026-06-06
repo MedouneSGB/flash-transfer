@@ -145,9 +145,11 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                 // First message: file metadata JSON
                 let mut file_name = String::new();
                 let mut file_size: u64 = 0;
+                let mut expected_sha = String::new();
                 let mut out_file: Option<tokio::fs::File> = None;
                 let mut bytes_received: u64 = 0;
                 let start = std::time::Instant::now();
+                const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024 * 1024; // 100 GB
 
                 loop {
                     tokio::select! {
@@ -167,6 +169,16 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                             file_name = "received_file".to_string();
                                         }
                                         file_size = meta["size"].as_u64().unwrap_or(0);
+                                        expected_sha = meta["sha256"].as_str().unwrap_or("").to_string();
+
+                                        // SECURITY: reject oversized files to prevent disk exhaustion
+                                        if file_size > MAX_FILE_SIZE {
+                                            let _ = app.emit("transfer-error", crate::transfer::TransferErrorEvent {
+                                                message: format!("Fichier trop volumineux : {} octets (max {})", file_size, MAX_FILE_SIZE),
+                                            });
+                                            break;
+                                        }
+
                                         let path = save_dir.join(&file_name);
                                         out_file = tokio::fs::OpenOptions::new()
                                             .create(true).write(true).truncate(true)
@@ -177,6 +189,12 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                             total_bytes: file_size,
                                             sender_ip: "relay".to_string(),
                                         });
+
+                                        // Empty file: no binary frames will arrive — finalize now.
+                                        if file_size == 0 && out_file.is_some() {
+                                            finalize_relay_received(&app, &save_dir, &file_name, 0, &expected_sha, 0.0, 0.0).await;
+                                            break;
+                                        }
                                     }
                                 }
                                 Some(Ok(Message::Binary(data))) => {
@@ -199,33 +217,9 @@ pub async fn join_relay_room(app: AppHandle, code: String) -> Result<(), String>
                                             });
 
                                             if bytes_received >= file_size {
-                                                // Compute SHA-256 of received file
-                                                let recv_path = save_dir.join(&file_name);
-                                                let hash = crate::transfer::sha256_file(&recv_path).await.unwrap_or_default();
-                                                log::info!("Relay received {} — SHA-256: {}", file_name, hash);
-                                                // Save to received files list (same as LAN transfer)
-                                                let ext = std::path::Path::new(&file_name)
-                                                    .extension()
-                                                    .and_then(|e| e.to_str())
-                                                    .unwrap_or("?")
-                                                    .to_uppercase();
-                                                crate::transfer::append_meta(crate::transfer::ReceivedFileMeta {
-                                                    id: format!("{:x}", crate::transfer::now_ms()),
-                                                    name: file_name.clone(),
-                                                    path: recv_path.to_string_lossy().to_string(),
-                                                    size: file_size,
-                                                    ext,
-                                                    sender_ip: "relay".to_string(),
-                                                    received_at: crate::transfer::now_ms(),
-                                                });
-                                                let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
-                                                    file_name: file_name.clone(),
-                                                    save_path: recv_path.to_string_lossy().to_string(),
-                                                    total_bytes: file_size,
-                                                    elapsed_secs: elapsed,
-                                                    avg_speed_mbps: speed,
-                                                    sha256: hash,
-                                                });
+                                                // Flush before hashing to ensure all bytes are on disk.
+                                                let _ = f.flush().await;
+                                                finalize_relay_received(&app, &save_dir, &file_name, file_size, &expected_sha, elapsed, speed).await;
                                                 break;
                                             }
                                         }
@@ -263,6 +257,59 @@ pub async fn disconnect_relay() -> Result<(), String> {
     Ok(())
 }
 
+/// Finalize a relay-received file: verify SHA-256 against the sender's hash,
+/// persist metadata, and emit `transfer-done` (or `transfer-error` on mismatch).
+async fn finalize_relay_received(
+    app: &AppHandle,
+    save_dir: &std::path::Path,
+    file_name: &str,
+    file_size: u64,
+    expected_sha: &str,
+    elapsed: f64,
+    speed: f64,
+) {
+    let recv_path = save_dir.join(file_name);
+    let hash = crate::transfer::sha256_file(&recv_path).await.unwrap_or_default();
+    let has_expected = expected_sha.chars().any(|c| c != '0');
+    if has_expected && hash != expected_sha {
+        log::error!(
+            "Relay integrity check FAILED for {} (expected {}, got {})",
+            file_name, expected_sha, hash
+        );
+        tokio::fs::remove_file(&recv_path).await.ok();
+        let msg = format!(
+            "Échec de vérification d'intégrité (SHA-256) pour « {} » — fichier corrompu, supprimé.",
+            file_name
+        );
+        let _ = app.emit("transfer-error", crate::transfer::TransferErrorEvent { message: msg });
+        return;
+    }
+    log::info!("Relay received {} — SHA-256 verified: {}", file_name, hash);
+
+    let ext = std::path::Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("?")
+        .to_uppercase();
+    crate::transfer::append_meta(crate::transfer::ReceivedFileMeta {
+        id: format!("{:x}", crate::transfer::now_ms()),
+        name: file_name.to_string(),
+        path: recv_path.to_string_lossy().to_string(),
+        size: file_size,
+        ext,
+        sender_ip: "relay".to_string(),
+        received_at: crate::transfer::now_ms(),
+    });
+    let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
+        file_name: file_name.to_string(),
+        save_path: recv_path.to_string_lossy().to_string(),
+        total_bytes: file_size,
+        elapsed_secs: elapsed,
+        avg_speed_mbps: speed,
+        sha256: hash,
+    });
+}
+
 async fn stream_file_via_ws(
     file_path: &str,
     write: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
@@ -274,10 +321,14 @@ async fn stream_file_via_ws(
     let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
     let file_size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
 
-    // Send metadata
-    let meta = serde_json::json!({"name": file_name, "size": file_size}).to_string();
+    // Compute SHA-256 up-front so the receiver can verify integrity end-to-end.
+    let file_sha = crate::transfer::sha256_file(path).await.unwrap_or_default();
+
+    // Send metadata (includes the hash for integrity verification)
+    let meta = serde_json::json!({"name": file_name, "size": file_size, "sha256": file_sha}).to_string();
     write.send(Message::Text(meta)).await.map_err(|e| e.to_string())?;
 
+    // Empty file: no binary frames will follow; the receiver completes on metadata.
     let mut file = tokio::fs::File::open(path).await.map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; 256 * 1024]; // 256KB chunks for WS
     let mut bytes_sent: u64 = 0;
@@ -308,16 +359,13 @@ async fn stream_file_via_ws(
     let elapsed = start.elapsed().as_secs_f64();
     let avg_speed = if elapsed > 0.0 { file_size as f64 / elapsed / 1_000_000.0 } else { 0.0 };
 
-    // Compute SHA-256 of sent file
-    let hash = crate::transfer::sha256_file(path).await.unwrap_or_default();
-
     let _ = app.emit("transfer-done", crate::transfer::TransferDoneEvent {
         file_name: file_name.clone(),
         save_path: String::new(),
         total_bytes: file_size,
         elapsed_secs: elapsed,
         avg_speed_mbps: avg_speed,
-        sha256: hash,
+        sha256: file_sha,
     });
 
     Ok(())

@@ -1,6 +1,6 @@
 [package]
 name = "flash-transfer"
-version = "1.4.2"
+version = "1.5.0"
 description = "Flash⚡Transfer - Ultra-fast file transfer"
 authors = ["Flash Transfer"]
 edition = "2021"

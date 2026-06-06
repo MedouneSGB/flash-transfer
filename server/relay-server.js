@@ -92,6 +92,14 @@ wss.on('connection', (ws, req) => {
   }
 
   const room = rooms.get(code);
+
+  // Prevent room hijacking: refuse a role slot that is already taken by a live peer.
+  const existing = room[role];
+  if (existing && existing.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ error: `Role '${role}' already taken for this code` }));
+    ws.close();
+    return;
+  }
   room[role] = ws;
 
   // Notify both peers when the pair is complete

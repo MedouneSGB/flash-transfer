@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -138,8 +138,35 @@ const BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4 MB read buffer
 
 struct RecvEntry {
     bytes_done: Arc<AtomicU64>,
+    /// Number of fully-written chunks; the handler that reaches `total_chunks` assembles.
+    chunks_done: Arc<AtomicU32>,
+    /// Ensures a single handler performs the assembly/verification.
+    assembling: Arc<AtomicBool>,
     start: std::time::Instant,
     total: u64,
+    /// Total number of chunks announced by the sender (authoritative).
+    total_chunks: u32,
+    /// Expected SHA-256 (hex) of the full file, sent by the sender for integrity check.
+    expected_sha: String,
+}
+
+// ─── SHA-256 hex <-> bytes helpers (for the on-wire integrity field) ─────────
+
+fn sha_bytes_to_hex(b: &[u8; 32]) -> String {
+    b.iter().map(|x| format!("{:02x}", x)).collect()
+}
+
+fn sha_hex_to_bytes(hex: &str) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let bytes = hex.as_bytes();
+    let mut i = 0;
+    while i < 32 && i * 2 + 1 < bytes.len() {
+        let hi = (bytes[i * 2] as char).to_digit(16).unwrap_or(0);
+        let lo = (bytes[i * 2 + 1] as char).to_digit(16).unwrap_or(0);
+        out[i] = ((hi << 4) | lo) as u8;
+        i += 1;
+    }
+    out
 }
 
 lazy_static! {
@@ -196,6 +223,23 @@ fn num_streams() -> usize {
     (cpus * 2).min(16).max(2)
 }
 
+/// Plan the chunking for a file: returns `(chunk_size, total_chunks)`.
+///
+/// `total_chunks` is authoritative and is transmitted in every chunk header so the
+/// receiver never recomputes it from its own (possibly different) CPU core count —
+/// this is what guarantees correct reassembly between heterogeneous machines.
+/// An empty file still yields exactly one (zero-length) chunk.
+fn plan_chunks(file_size: u64, n: usize) -> (u64, u32) {
+    let n = n.max(1) as u64;
+    let chunk_size = std::cmp::max(1, (file_size + n - 1) / n);
+    let total_chunks: u32 = if file_size == 0 {
+        1
+    } else {
+        ((file_size + chunk_size - 1) / chunk_size) as u32
+    };
+    (chunk_size, total_chunks)
+}
+
 // ─── SEND ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -217,18 +261,21 @@ pub async fn send_file(
     let file_size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
     let n = num_streams();
 
+    // Compute SHA-256 up-front so the receiver can verify integrity end-to-end.
+    let file_sha = sha256_file(&path).await.unwrap_or_default();
+    let sha_bytes = sha_hex_to_bytes(&file_sha);
+
     let bytes_sent = Arc::new(AtomicU64::new(0));
     let start = std::time::Instant::now();
 
-    let chunk_size = (file_size + n as u64 - 1) / n as u64;
+    // total_chunks is sent in every header so the receiver never has to guess it
+    // from its own (possibly different) CPU count.
+    let (chunk_size, total_chunks) = plan_chunks(file_size, n);
     let mut handles = Vec::new();
 
-    for i in 0..n {
+    for i in 0..total_chunks as usize {
         let offset = i as u64 * chunk_size;
-        if offset >= file_size {
-            break;
-        }
-        let length = chunk_size.min(file_size - offset);
+        let length = if file_size == 0 { 0 } else { chunk_size.min(file_size - offset) };
         let ip = ip.clone();
         let path = path.clone();
         let file_name = file_name.clone();
@@ -239,7 +286,7 @@ pub async fn send_file(
             if i > 0 {
                 tokio::time::sleep(tokio::time::Duration::from_millis(i as u64 * 20)).await;
             }
-            send_chunk(&ip, BASE_PORT, &path, &file_name, file_size, offset, length, i, bytes_sent, app).await
+            send_chunk(&ip, BASE_PORT, &path, &file_name, file_size, offset, length, i, total_chunks, sha_bytes, bytes_sent, app).await
         }));
     }
 
@@ -296,21 +343,19 @@ pub async fn send_file(
     let elapsed = start.elapsed().as_secs_f64();
     let avg_speed = if elapsed > 0.0 { file_size as f64 / elapsed / 1_000_000.0 } else { 0.0 };
 
-    // Compute SHA-256 of sent file for integrity reference
-    let hash = sha256_file(&path).await.unwrap_or_default();
-
     let _ = app.emit("transfer-done", TransferDoneEvent {
         file_name,
         save_path: String::new(),
         total_bytes: file_size,
         elapsed_secs: elapsed,
         avg_speed_mbps: avg_speed,
-        sha256: hash,
+        sha256: file_sha,
     });
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_chunk(
     ip: &str,
     port: u16,
@@ -320,6 +365,8 @@ async fn send_chunk(
     offset: u64,
     length: u64,
     chunk_index: usize,
+    total_chunks: u32,
+    sha: [u8; 32],
     bytes_sent: Arc<AtomicU64>,
     _app: AppHandle,
 ) -> Result<(), String> {
@@ -338,13 +385,15 @@ async fn send_chunk(
     stream.set_nodelay(true).ok();
 
     let name_bytes = file_name.as_bytes();
-    let mut header = Vec::with_capacity(32 + name_bytes.len());
-    header.extend_from_slice(&file_size.to_be_bytes());
-    header.extend_from_slice(&(name_bytes.len() as u32).to_be_bytes());
-    header.extend_from_slice(&(chunk_index as u32).to_be_bytes());
-    header.extend_from_slice(&offset.to_be_bytes());
-    header.extend_from_slice(&length.to_be_bytes());
-    header.extend_from_slice(name_bytes);
+    let mut header = Vec::with_capacity(68 + name_bytes.len());
+    header.extend_from_slice(&file_size.to_be_bytes());          // 8
+    header.extend_from_slice(&(name_bytes.len() as u32).to_be_bytes()); // 4
+    header.extend_from_slice(&(chunk_index as u32).to_be_bytes()); // 4
+    header.extend_from_slice(&total_chunks.to_be_bytes());        // 4
+    header.extend_from_slice(&offset.to_be_bytes());              // 8
+    header.extend_from_slice(&length.to_be_bytes());              // 8
+    header.extend_from_slice(&sha);                               // 32
+    header.extend_from_slice(name_bytes);                        // N
     stream.write_all(&header).await.map_err(|e| e.to_string())?;
 
     use tokio::io::AsyncSeekExt;
@@ -454,6 +503,7 @@ async fn handle_incoming(
     // ── Read header ──────────────────────────────────────────────────────
     let mut buf8 = [0u8; 8];
     let mut buf4 = [0u8; 4];
+    let mut buf32 = [0u8; 32];
 
     stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
     let file_size = u64::from_be_bytes(buf8);
@@ -470,11 +520,17 @@ async fn handle_incoming(
     stream.read_exact(&mut buf4).await.map_err(|e| e.to_string())?;
     let chunk_index = u32::from_be_bytes(buf4);
 
+    stream.read_exact(&mut buf4).await.map_err(|e| e.to_string())?;
+    let total_chunks = u32::from_be_bytes(buf4).max(1);
+
     stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
     let _offset = u64::from_be_bytes(buf8);
 
     stream.read_exact(&mut buf8).await.map_err(|e| e.to_string())?;
     let length = u64::from_be_bytes(buf8);
+
+    stream.read_exact(&mut buf32).await.map_err(|e| e.to_string())?;
+    let expected_sha = sha_bytes_to_hex(&buf32);
 
     if name_len > 1024 {
         return Err("File name too long (>1024 bytes)".to_string());
@@ -497,7 +553,7 @@ async fn handle_incoming(
     };
 
     // ── Register in global tracker (emit receive-start on first chunk) ───
-    let bytes_arc = {
+    let (bytes_arc, chunks_arc, assembling_arc, expected_chunks, expected_sha) = {
         let mut tracker = RECV_TRACKER.lock().unwrap();
         if !tracker.contains_key(&file_name) {
             // First chunk for this file: announce to the UI
@@ -508,11 +564,22 @@ async fn handle_incoming(
             });
             tracker.insert(file_name.clone(), RecvEntry {
                 bytes_done: Arc::new(AtomicU64::new(0)),
+                chunks_done: Arc::new(AtomicU32::new(0)),
+                assembling: Arc::new(AtomicBool::new(false)),
                 start: std::time::Instant::now(),
                 total: file_size,
+                total_chunks,
+                expected_sha: expected_sha.clone(),
             });
         }
-        tracker.get(&file_name).unwrap().bytes_done.clone()
+        let e = tracker.get(&file_name).unwrap();
+        (
+            e.bytes_done.clone(),
+            e.chunks_done.clone(),
+            e.assembling.clone(),
+            e.total_chunks,
+            e.expected_sha.clone(),
+        )
     };
 
     // Snapshot start time (we'll re-read from tracker for accurate elapsed)
@@ -579,67 +646,79 @@ async fn handle_incoming(
     // ── ACK ──────────────────────────────────────────────────────────────
     stream.write_all(b"ACK").await.ok();
 
-    // ── Check if all chunks present → assemble ───────────────────────────
-    let n = num_streams() as u64;
-    let per_chunk = (file_size + n - 1) / n;
-    let chunks_expected = if per_chunk == 0 {
-        1
-    } else {
-        (0..n).filter(|&i| i * per_chunk < file_size).count()
+    // ── Count completed chunks; the handler that completes the last chunk
+    //    (and wins the `assembling` race) performs assembly + verification.
+    //    Using an atomic counter avoids the previous bug where each side
+    //    independently guessed the chunk count from its own CPU core count.
+    let done_count = chunks_arc.fetch_add(1, Ordering::SeqCst) + 1;
+    if done_count < expected_chunks {
+        return Ok(());
+    }
+    // Ensure exactly one handler assembles, even if two finish concurrently.
+    if assembling_arc.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    // Capture timing before cleanup
+    let (elapsed, total_done) = {
+        let tracker = RECV_TRACKER.lock().unwrap();
+        if let Some(entry) = tracker.get(&file_name) {
+            (entry.start.elapsed().as_secs_f64(), entry.bytes_done.load(Ordering::Relaxed))
+        } else {
+            (0.0, file_size)
+        }
     };
 
-    let all_present = !final_path.exists()
-        && (0..chunks_expected).all(|i| {
-            save_dir.join(format!("{}.part{}", file_name, i)).exists()
-        });
+    assemble_file(&file_name, save_dir, file_size, expected_chunks as usize, &final_path).await?;
 
-    if all_present {
-        // Capture timing before cleanup
-        let (elapsed, total_done) = {
-            let tracker = RECV_TRACKER.lock().unwrap();
-            if let Some(entry) = tracker.get(&file_name) {
-                (entry.start.elapsed().as_secs_f64(), entry.bytes_done.load(Ordering::Relaxed))
-            } else {
-                (0.0, file_size)
-            }
-        };
-
-        assemble_file(&file_name, save_dir, file_size, chunks_expected, &final_path).await?;
-
-        // Compute SHA-256 of received file for integrity verification
-        let hash = sha256_file(&final_path).await.unwrap_or_default();
-        log::info!("Received {} — SHA-256: {}", file_name, hash);
-
-        // Clean up tracker
+    // ── SECURITY/INTEGRITY: verify the received file against the sender's hash ──
+    let hash = sha256_file(&final_path).await.unwrap_or_default();
+    let has_expected = expected_sha.chars().any(|c| c != '0');
+    if has_expected && hash != expected_sha {
+        log::error!(
+            "Integrity check FAILED for {} (expected {}, got {})",
+            file_name, expected_sha, hash
+        );
+        tokio::fs::remove_file(&final_path).await.ok();
         RECV_TRACKER.lock().unwrap().remove(&file_name);
-
-        // Persist metadata for "Fichiers reçus" tab
-        let ext = std::path::Path::new(&file_name)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("?")
-            .to_uppercase();
-        append_meta(ReceivedFileMeta {
-            id: format!("{:x}", now_ms()),
-            name: file_name.clone(),
-            path: final_path.to_string_lossy().to_string(),
-            size: file_size,
-            ext,
-            sender_ip: sender_ip.clone(),
-            received_at: now_ms(),
-        });
-
-        let avg_speed = if elapsed > 0.0 { total_done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
-
-        let _ = app.emit("transfer-done", TransferDoneEvent {
-            file_name: file_name.clone(),
-            save_path: final_path.to_string_lossy().to_string(),
-            total_bytes: file_size,
-            elapsed_secs: elapsed,
-            avg_speed_mbps: avg_speed,
-            sha256: hash,
-        });
+        let msg = format!(
+            "Échec de vérification d'intégrité (SHA-256) pour « {} » — fichier corrompu, supprimé.",
+            file_name
+        );
+        let _ = app.emit("transfer-error", TransferErrorEvent { message: msg.clone() });
+        return Err(msg);
     }
+    log::info!("Received {} — SHA-256 verified: {}", file_name, hash);
+
+    // Clean up tracker
+    RECV_TRACKER.lock().unwrap().remove(&file_name);
+
+    // Persist metadata for "Fichiers reçus" tab
+    let ext = std::path::Path::new(&file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("?")
+        .to_uppercase();
+    append_meta(ReceivedFileMeta {
+        id: format!("{:x}", now_ms()),
+        name: file_name.clone(),
+        path: final_path.to_string_lossy().to_string(),
+        size: file_size,
+        ext,
+        sender_ip: sender_ip.clone(),
+        received_at: now_ms(),
+    });
+
+    let avg_speed = if elapsed > 0.0 { total_done as f64 / elapsed / 1_000_000.0 } else { 0.0 };
+
+    let _ = app.emit("transfer-done", TransferDoneEvent {
+        file_name: file_name.clone(),
+        save_path: final_path.to_string_lossy().to_string(),
+        total_bytes: file_size,
+        elapsed_secs: elapsed,
+        avg_speed_mbps: avg_speed,
+        sha256: hash,
+    });
 
     Ok(())
 }
@@ -689,4 +768,68 @@ pub fn get_save_dir() -> PathBuf {
     let base = dirs_next::download_dir()
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("FlashTransfer")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Simulate the sender's chunk layout and assert it covers the whole file
+    /// exactly once, with contiguous, non-overlapping ranges. This is the
+    /// invariant the receiver relies on (it uses the sender's `total_chunks`).
+    fn assert_layout_covers(file_size: u64, n: usize) {
+        let (chunk_size, total_chunks) = plan_chunks(file_size, n);
+        assert!(total_chunks >= 1, "must always have at least one chunk");
+
+        let mut covered: u64 = 0;
+        let mut next_offset: u64 = 0;
+        for i in 0..total_chunks as u64 {
+            let offset = i * chunk_size;
+            assert_eq!(offset, next_offset, "chunks must be contiguous");
+            let length = if file_size == 0 { 0 } else { chunk_size.min(file_size - offset) };
+            covered += length;
+            next_offset = offset + length;
+        }
+        assert_eq!(covered, file_size, "chunks must cover the file exactly");
+    }
+
+    #[test]
+    fn empty_file_yields_single_chunk() {
+        assert_eq!(plan_chunks(0, 8), (1, 1));
+        assert_layout_covers(0, 8);
+    }
+
+    #[test]
+    fn layout_covers_file_for_many_sizes_and_stream_counts() {
+        let sizes = [1u64, 2, 63, 64, 65, 1000, 1 << 20, (1 << 20) + 7, 100 * (1 << 20)];
+        // n varies to emulate different CPU core counts on the SENDER.
+        for &n in &[2usize, 4, 8, 16] {
+            for &size in &sizes {
+                assert_layout_covers(size, n);
+            }
+        }
+    }
+
+    #[test]
+    fn total_chunks_never_exceeds_streams() {
+        for &n in &[2usize, 4, 8, 16] {
+            let (_, total) = plan_chunks(10 * (1 << 20), n);
+            assert!(total as usize <= n, "total_chunks ({total}) must not exceed n ({n})");
+        }
+    }
+
+    #[test]
+    fn sha_hex_roundtrip() {
+        let hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let bytes = sha_hex_to_bytes(hex);
+        assert_eq!(sha_bytes_to_hex(&bytes), hex);
+    }
+
+    #[test]
+    fn sha_all_zero_when_unavailable() {
+        // Empty/short hex (e.g. hashing failed) decodes to all-zero -> verification skipped.
+        let bytes = sha_hex_to_bytes("");
+        assert_eq!(bytes, [0u8; 32]);
+        assert!(!sha_bytes_to_hex(&bytes).chars().any(|c| c != '0'));
+    }
 }

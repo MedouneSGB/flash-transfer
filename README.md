@@ -2,7 +2,7 @@
 
 > Transfert de fichiers ultra-rapide entre appareils — LAN & Internet, sans cloud, sans compte
 
-![Flash Transfer](https://img.shields.io/badge/version-1.4.2-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
+![Flash Transfer](https://img.shields.io/badge/version-1.5.0-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
 ![Tauri](https://img.shields.io/badge/Tauri_2-0D0D0D?style=for-the-badge&logo=tauri&logoColor=FFD700)
 ![Rust](https://img.shields.io/badge/Rust-0D0D0D?style=for-the-badge&logo=rust&logoColor=FFD700)
 ![Platform](https://img.shields.io/badge/Windows_%7C_macOS_%7C_Linux-0D0D0D?style=for-the-badge&logoColor=FFD700)
@@ -122,8 +122,10 @@ Header par stream :
   [8 bytes]  Taille totale du fichier
   [4 bytes]  Longueur du nom de fichier
   [4 bytes]  Index du chunk (identifie le stream)
+  [4 bytes]  Nombre total de chunks (authoritatif — fixé par l'envoyeur)
   [8 bytes]  Offset dans le fichier
   [8 bytes]  Longueur du chunk
+  [32 bytes] SHA-256 du fichier complet (vérifié à la réception)
   [N bytes]  Nom du fichier
   [data...]  Données binaires
 
@@ -131,7 +133,7 @@ Réponse récepteur :
   [3 bytes]  "ACK"
 ```
 
-**N streams parallèles** = `(CPU cores × 2).min(16).max(2)` — chaque stream envoie un chunk de 64 MB en simultané. Le récepteur reconstruit le fichier depuis les parties reçues, puis vérifie le hash SHA-256.
+**N streams parallèles** = `(CPU cores × 2).min(16).max(2)` — chaque stream envoie un chunk en simultané. Le **nombre total de chunks est transmis dans le header** (et non recalculé côté récepteur), ce qui garantit un réassemblage correct même entre machines de capacités CPU différentes. Le récepteur reconstruit le fichier depuis les parties reçues, puis **vérifie le SHA-256** contre celui de l'envoyeur ; en cas de divergence, le fichier corrompu est supprimé et une erreur est remontée.
 
 **Ports utilisés :**
 
@@ -195,12 +197,12 @@ npm run build
 Les installeurs générés se trouvent dans :
 ```
 src-tauri/target/release/bundle/
-├── nsis/          → Flash Transfer_1.4.2_x64-setup.exe  (Windows)
-├── msi/           → Flash Transfer_1.4.2_x64.msi        (Windows)
-├── dmg/           → Flash Transfer_1.4.2_x64.dmg        (macOS Intel)
-├── dmg/           → Flash Transfer_1.4.2_aarch64.dmg    (macOS Apple Silicon)
-├── appimage/      → flash-transfer_1.4.2_amd64.AppImage (Linux)
-└── deb/           → flash-transfer_1.4.2_amd64.deb      (Linux)
+├── nsis/          → Flash Transfer_1.5.0_x64-setup.exe  (Windows)
+├── msi/           → Flash Transfer_1.5.0_x64.msi        (Windows)
+├── dmg/           → Flash Transfer_1.5.0_x64.dmg        (macOS Intel)
+├── dmg/           → Flash Transfer_1.5.0_aarch64.dmg    (macOS Apple Silicon)
+├── appimage/      → flash-transfer_1.5.0_amd64.AppImage (Linux)
+└── deb/           → flash-transfer_1.5.0_amd64.deb      (Linux)
 ```
 
 ### CI/CD automatique
@@ -208,8 +210,8 @@ src-tauri/target/release/bundle/
 Le workflow GitHub Actions (`.github/workflows/release.yml`) se déclenche sur chaque tag `v*` et produit les binaires pour **Windows, macOS Intel, macOS Apple Silicon et Linux** en parallèle.
 
 ```bash
-git tag v1.4.2
-git push origin v1.4.2
+git tag v1.5.0
+git push origin v1.5.0
 ```
 
 ---
