@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
   res.end('Flash⚡Transfer Relay Server');
 });
 
-const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message
+const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max — RELAY_CHUNK=256KB + large marge
 
 // rooms: Map<code, { sender: WebSocket|null, receiver: WebSocket|null }>
 const rooms = new Map();
