@@ -484,10 +484,12 @@ img, svg { display: block; }
 /* QR code canvas (sender) */
 .qr-canvas {
   display: block; margin: 8px auto;
-  width: 160px; height: 160px;
+  /* 220px : mieux détecté par caméra à distance — quiet zone incluse dans le canvas */
+  max-width: 220px; max-height: 220px;
+  width: auto; height: auto;
   border: 3px solid var(--primary);
   border-radius: 10px;
-  image-rendering: pixelated;
+  image-rendering: crisp-edges; /* préserve la netteté des modules sans artefacts */
   background: #fff;
   box-shadow: 0 0 20px rgba(255,215,0,.2);
 }

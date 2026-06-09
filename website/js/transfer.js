@@ -260,17 +260,41 @@ function generateQRCode(text, canvasId) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || typeof qrcode === 'undefined') return;
   try {
-    const qr = qrcode(1, 'L');
+    // 'M' = 15% correction d'erreur (vs 'L' = 7%) — robustesse caméra ×2
+    const qr = qrcode(1, 'M');
     qr.addData(text); qr.make();
-    const size = qr.getModuleCount();
-    const cell = Math.max(2, Math.floor(160 / size));
-    canvas.width  = size * cell;
-    canvas.height = size * cell;
+    const modules = qr.getModuleCount();
+
+    // Quiet zone obligatoire (4 modules de chaque côté selon la spec QR)
+    // Sans elle, les scanners ratent les patterns de détection aux coins.
+    const QUIET = 4;
+    const total = modules + QUIET * 2;          // ex: 21 + 8 = 29 pour version 1
+
+    // Taille visuelle cible 220px — mieux détecté par caméra à distance
+    const RENDER = 220;
+    const cell = Math.max(4, Math.floor(RENDER / total));
+    const side  = total * cell;
+
+    // Rendu 2× pour les écrans Retina (canvas interne plus grand, CSS fixe la taille)
+    canvas.width  = side * 2;
+    canvas.height = side * 2;
+    canvas.style.width  = side + 'px';
+    canvas.style.height = side + 'px';
+
     const ctx = canvas.getContext('2d');
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        ctx.fillStyle = qr.isDark(r, c) ? '#000' : '#fff';
-        ctx.fillRect(c * cell, r * cell, cell, cell);
+    ctx.scale(2, 2);
+
+    // Fond blanc (couvre la quiet zone)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, side, side);
+
+    // Modules QR (décalés de QUIET pour laisser la bordure blanche)
+    ctx.fillStyle = '#000000';
+    for (let r = 0; r < modules; r++) {
+      for (let c = 0; c < modules; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect((c + QUIET) * cell, (r + QUIET) * cell, cell, cell);
+        }
       }
     }
     canvas.style.display = 'block';
@@ -286,14 +310,19 @@ let qrScanAnim   = null;
 async function startQRScanner() {
   const video = document.getElementById('qrVideo');
   try {
+    // Demander au minimum 720p — plus de pixels = QR détecté plus vite et de plus loin
     qrScanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720,  min: 480 },
+      }
     });
     video.srcObject = qrScanStream;
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('qrScanCanvas');
-      sc.width  = video.videoWidth  || 640;
-      sc.height = video.videoHeight || 480;
+      sc.width  = video.videoWidth  || 1280;
+      sc.height = video.videoHeight || 720;
       scanQRFrame(video, sc);
     }, { once: true });
   } catch (e) {
@@ -307,7 +336,8 @@ function scanQRFrame(video, canvas) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  // 'attemptBoth' essaie aussi l'inversion (fond sombre/clair) — détection plus robuste
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
   if (code && code.data) {
     const clean = code.data.trim().replace(/[^a-zA-Z0-9]/g, '');
     if (clean.length >= 4 && clean.length <= 7) {
@@ -339,13 +369,17 @@ async function startRecvQRScanner() {
   const video = document.getElementById('recvQrVideo');
   try {
     recvQrScanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720,  min: 480 },
+      }
     });
     video.srcObject = recvQrScanStream;
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('recvQrScanCanvas');
-      sc.width  = video.videoWidth  || 640;
-      sc.height = video.videoHeight || 480;
+      sc.width  = video.videoWidth  || 1280;
+      sc.height = video.videoHeight || 720;
       scanRecvQRFrame(video, sc);
     }, { once: true });
   } catch (e) {
@@ -359,7 +393,7 @@ function scanRecvQRFrame(video, canvas) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
   if (code && code.data) {
     const clean = code.data.trim().replace(/[^a-zA-Z0-9]/g, '');
     if (clean.length >= 4 && clean.length <= 7) {
