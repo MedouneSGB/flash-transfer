@@ -49,6 +49,7 @@ const MAX_BYTES    = 1024 * 1024 * 1024;
 const CHUNK_SIZE   = 64 * 1024;
 const RELAY_URL    = 'wss://flash-transfer-7vj7.onrender.com';
 const RELAY_CHUNK  = 256 * 1024;
+const RACE_TIMEOUT = 30000; // 30s — laisse le temps au relay de sortir du cold start
 
 // ── State ──────────────────────────────────
 let peer      = null;
@@ -162,9 +163,11 @@ function escHtml(s) {
 // ── Détection réseau mobile ──────────────────
 // Retourne true si l'appareil est probablement sur données mobiles
 // ou sur une connexion trop lente pour établir WebRTC (CGNAT/opérateur).
-// Basé sur Network Information API (Chrome/Android) — silencieux sinon.
+// iOS Safari ne supporte pas Network Information API mais WebRTC y est
+// peu fiable derrière le CGNAT des opérateurs — on préfère le relay.
 function isLikelyCellular() {
   try {
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
     const nc = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     if (!nc) return false;
     return nc.type === 'cellular'
@@ -257,17 +260,41 @@ function generateQRCode(text, canvasId) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || typeof qrcode === 'undefined') return;
   try {
-    const qr = qrcode(1, 'L');
+    // 'M' = 15% correction d'erreur (vs 'L' = 7%) — robustesse caméra ×2
+    const qr = qrcode(1, 'M');
     qr.addData(text); qr.make();
-    const size = qr.getModuleCount();
-    const cell = Math.max(2, Math.floor(160 / size));
-    canvas.width  = size * cell;
-    canvas.height = size * cell;
+    const modules = qr.getModuleCount();
+
+    // Quiet zone obligatoire (4 modules de chaque côté selon la spec QR)
+    // Sans elle, les scanners ratent les patterns de détection aux coins.
+    const QUIET = 4;
+    const total = modules + QUIET * 2;          // ex: 21 + 8 = 29 pour version 1
+
+    // Taille visuelle cible 220px — mieux détecté par caméra à distance
+    const RENDER = 220;
+    const cell = Math.max(4, Math.floor(RENDER / total));
+    const side  = total * cell;
+
+    // Rendu 2× pour les écrans Retina (canvas interne plus grand, CSS fixe la taille)
+    canvas.width  = side * 2;
+    canvas.height = side * 2;
+    canvas.style.width  = side + 'px';
+    canvas.style.height = side + 'px';
+
     const ctx = canvas.getContext('2d');
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        ctx.fillStyle = qr.isDark(r, c) ? '#000' : '#fff';
-        ctx.fillRect(c * cell, r * cell, cell, cell);
+    ctx.scale(2, 2);
+
+    // Fond blanc (couvre la quiet zone)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, side, side);
+
+    // Modules QR (décalés de QUIET pour laisser la bordure blanche)
+    ctx.fillStyle = '#000000';
+    for (let r = 0; r < modules; r++) {
+      for (let c = 0; c < modules; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect((c + QUIET) * cell, (r + QUIET) * cell, cell, cell);
+        }
       }
     }
     canvas.style.display = 'block';
@@ -283,14 +310,19 @@ let qrScanAnim   = null;
 async function startQRScanner() {
   const video = document.getElementById('qrVideo');
   try {
+    // Demander au minimum 720p — plus de pixels = QR détecté plus vite et de plus loin
     qrScanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720,  min: 480 },
+      }
     });
     video.srcObject = qrScanStream;
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('qrScanCanvas');
-      sc.width  = video.videoWidth  || 640;
-      sc.height = video.videoHeight || 480;
+      sc.width  = video.videoWidth  || 1280;
+      sc.height = video.videoHeight || 720;
       scanQRFrame(video, sc);
     }, { once: true });
   } catch (e) {
@@ -304,7 +336,8 @@ function scanQRFrame(video, canvas) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  // 'attemptBoth' essaie aussi l'inversion (fond sombre/clair) — détection plus robuste
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
   if (code && code.data) {
     const clean = code.data.trim().replace(/[^a-zA-Z0-9]/g, '');
     if (clean.length >= 4 && clean.length <= 7) {
@@ -336,13 +369,17 @@ async function startRecvQRScanner() {
   const video = document.getElementById('recvQrVideo');
   try {
     recvQrScanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720,  min: 480 },
+      }
     });
     video.srcObject = recvQrScanStream;
     video.addEventListener('loadedmetadata', () => {
       const sc = document.getElementById('recvQrScanCanvas');
-      sc.width  = video.videoWidth  || 640;
-      sc.height = video.videoHeight || 480;
+      sc.width  = video.videoWidth  || 1280;
+      sc.height = video.videoHeight || 720;
       scanRecvQRFrame(video, sc);
     }, { once: true });
   } catch (e) {
@@ -356,7 +393,7 @@ function scanRecvQRFrame(video, canvas) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
   if (code && code.data) {
     const clean = code.data.trim().replace(/[^a-zA-Z0-9]/g, '');
     if (clean.length >= 4 && clean.length <= 7) {
@@ -487,7 +524,10 @@ function connectToOther(rawCode) {
   }
 
   showFlex('sendConnStatus');
-  setText('sendConnText', isLikelyCellular() ? 'Réseau mobile — connexion via relay…' : 'Connexion en cours…');
+  const isMobile = isLikelyCellular();
+  setText('sendConnText', isMobile
+    ? 'Réseau mobile — connexion via relay…'
+    : relayReady ? 'Connexion en cours…' : 'Connexion en cours (réveil du relay…)');
   hideError('connectError');
   startSendRace(code);
 }
@@ -526,7 +566,7 @@ function startSendRace(code) {
     toast('Connecté via relay ⚡', 'success');
   };
 
-  // ── Timeout 20s ──
+  // ── Timeout (30s pour laisser le relay sortir du cold start) ──
   const timeout = setTimeout(() => {
     if (won) return;
     won = true;
@@ -536,7 +576,7 @@ function startSendRace(code) {
     hide('sendConnStatus');
     showBlock('stepConnect');
     showError('connectError', 'Connexion impossible — vérifiez que le destinataire est bien en mode réception et réessayez.');
-  }, 20000);
+  }, RACE_TIMEOUT);
 
   const clearRaceTimeout = () => clearTimeout(timeout);
 
@@ -553,16 +593,26 @@ function startSendRace(code) {
     conn.on('error', () => { /* relay peut encore gagner */ });
   }
 
-  // ── Bras 2 : Relay (toujours lancé en parallèle) ──
-  try {
-    raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=sender`);
-    raceWs.binaryType = 'arraybuffer';
-    raceWs.onmessage  = (evt) => {
-      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
-    };
-    raceWs.onerror = () => { if (!won) raceWs = null; };
-    raceWs.onclose = () => { if (!won) raceWs = null; };
-  } catch(_) {}
+  // ── Bras 2 : Relay (toujours lancé en parallèle, retry si le relay est en cold start) ──
+  let relayRetries = 0;
+  function tryRelayConnect() {
+    if (won) return;
+    try {
+      raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=sender`);
+      raceWs.binaryType = 'arraybuffer';
+      raceWs.onmessage  = (evt) => {
+        if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
+      };
+      raceWs.onerror = () => {
+        if (!won && relayRetries < 2) {
+          relayRetries++;
+          setTimeout(tryRelayConnect, 3000);
+        } else if (!won) { raceWs = null; }
+      };
+      raceWs.onclose = () => { if (!won) raceWs = null; };
+    } catch(_) {}
+  }
+  tryRelayConnect();
 }
 
 function onSendConnected() {
@@ -809,7 +859,9 @@ function connectToOtherAsRecv(rawCode) {
   hide('stepRecvConnect');
   showFlex('recvConnStatus');
   setText('recvConnIcon', '⏳');
-  setText('recvConnText', isLikelyCellular() ? 'Réseau mobile — connexion via relay…' : 'Connexion en cours…');
+  setText('recvConnText', isLikelyCellular()
+    ? 'Réseau mobile — connexion via relay…'
+    : relayReady ? 'Connexion en cours…' : 'Connexion en cours (réveil du relay…)');
   hideError('recvConnectError');
   startRecvRace(code);
 }
@@ -842,7 +894,7 @@ function startRecvRace(code) {
     toast('Connecté via relay ⚡', 'success');
   };
 
-  // ── Timeout 20s ──
+  // ── Timeout (30s pour laisser le relay sortir du cold start) ──
   const timeout = setTimeout(() => {
     if (won) return;
     won = true;
@@ -852,7 +904,7 @@ function startRecvRace(code) {
     hide('recvConnStatus');
     showBlock('stepRecvConnect');
     showError('recvConnectError', 'Connexion impossible — vérifiez que l\'expéditeur est bien en mode envoi et réessayez.');
-  }, 20000);
+  }, RACE_TIMEOUT);
 
   const clearRaceTimeout = () => clearTimeout(timeout);
 
@@ -863,16 +915,26 @@ function startRecvRace(code) {
     conn.on('error', () => { /* relay peut encore gagner */ });
   }
 
-  // ── Bras 2 : Relay (toujours lancé en parallèle) ──
-  try {
-    raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=receiver`);
-    raceWs.binaryType = 'arraybuffer';
-    raceWs.onmessage  = (evt) => {
-      if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
-    };
-    raceWs.onerror = () => { if (!won) raceWs = null; };
-    raceWs.onclose = () => { if (!won) raceWs = null; };
-  } catch(_) {}
+  // ── Bras 2 : Relay (toujours lancé en parallèle, retry si le relay est en cold start) ──
+  let relayRetries = 0;
+  function tryRelayConnect() {
+    if (won) return;
+    try {
+      raceWs = new WebSocket(`${RELAY_URL}/ws?code=${code.toLowerCase()}&role=receiver`);
+      raceWs.binaryType = 'arraybuffer';
+      raceWs.onmessage  = (evt) => {
+        if (typeof evt.data === 'string' && evt.data === 'PEER_CONNECTED') { clearRaceTimeout(); winRelay(); }
+      };
+      raceWs.onerror = () => {
+        if (!won && relayRetries < 2) {
+          relayRetries++;
+          setTimeout(tryRelayConnect, 3000);
+        } else if (!won) { raceWs = null; }
+      };
+      raceWs.onclose = () => { if (!won) raceWs = null; };
+    } catch(_) {}
+  }
+  tryRelayConnect();
 }
 
 function setupRecvConn(c) {
@@ -1102,8 +1164,10 @@ function startRecvRelayFallback(code) {
         return;
       }
       if (event.data === 'PEER_DISCONNECTED') {
-        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+        // Finaliser uniquement si le fichier courant est complet (évite les fichiers corrompus)
+        if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+          finalizeRelayFile(fileName, fileSize, chunks);
+        if (recvFiles.length > 0) {
           hide('recvProgress');
           showFileGallery();
         } else if (connectedOnce) {
@@ -1115,7 +1179,9 @@ function startRecvRelayFallback(code) {
         const meta = JSON.parse(event.data);
         if (meta.error) return;
         if (meta.name && meta.size !== undefined) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          // Finaliser le fichier précédent seulement s'il est complet
+          if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+            finalizeRelayFile(fileName, fileSize, chunks);
           fileName = meta.name; fileSize = meta.size;
           chunks = []; bytesRecv = 0; tStart = Date.now();
           hide('recvConnStatus');
@@ -1256,8 +1322,9 @@ function setupRecvRelayWs(ws) {
   ws.onmessage = (event) => {
     if (typeof event.data === 'string') {
       if (event.data === 'PEER_DISCONNECTED') {
-        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+        if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+          finalizeRelayFile(fileName, fileSize, chunks);
+        if (recvFiles.length > 0) {
           hide('recvProgress');
           showFileGallery();
         } else {
@@ -1269,7 +1336,8 @@ function setupRecvRelayWs(ws) {
       try {
         const meta = JSON.parse(event.data);
         if (meta.name && meta.size !== undefined) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+            finalizeRelayFile(fileName, fileSize, chunks);
           fileName = meta.name; fileSize = meta.size;
           chunks = []; bytesRecv = 0; tStart = Date.now();
           hide('recvConnStatus');
@@ -1391,6 +1459,9 @@ async function relaySendTo(code) {
       while (offset < file.size) {
         const end = Math.min(offset + RELAY_CHUNK, file.size);
         const buf = await file.slice(offset, end).arrayBuffer();
+        // Backpressure : attendre que le buffer WebSocket se vide avant d'envoyer
+        while (relayWs.bufferedAmount > 1024 * 1024)
+          await new Promise(r => setTimeout(r, 50));
         relayWs.send(buf);
         offset = end;
         totalSent += buf.byteLength;
@@ -1448,8 +1519,9 @@ function relayReceiveFrom(code) {
         return;
       }
       if (event.data === 'PEER_DISCONNECTED') {
-        if (recvFiles.length > 0 || (bytesRecv > 0 && bytesRecv >= fileSize)) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+        if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+          finalizeRelayFile(fileName, fileSize, chunks);
+        if (recvFiles.length > 0) {
           hide('recvProgress');
           showFileGallery();
         } else {
@@ -1461,7 +1533,8 @@ function relayReceiveFrom(code) {
       try {
         const meta = JSON.parse(event.data);
         if (meta.name && meta.size !== undefined) {
-          if (fileName && chunks.length > 0) finalizeRelayFile(fileName, fileSize, chunks);
+          if (fileName && chunks.length > 0 && bytesRecv >= fileSize)
+            finalizeRelayFile(fileName, fileSize, chunks);
           fileName = meta.name; fileSize = meta.size;
           chunks = []; bytesRecv = 0; tStart = Date.now();
           hide('recvConnStatus');
@@ -1532,10 +1605,24 @@ function guessMime(name) {
 // ═══════════════════════════════════════════
 //  INIT (DOMContentLoaded)
 // ═══════════════════════════════════════════
+// ── Warm-up relay (Render.com free tier peut dormir 15 min) ──────────────────
+// Lance un ping, puis repoll toutes les 5s jusqu'à succès ou 4 tentatives.
+// Si le relay est endormi, cette séquence accélère son réveil avant que
+// l'utilisateur tente une connexion.
+let relayReady = false;
+function warmUpRelay(attempts = 0) {
+  const url = RELAY_URL.replace('wss://', 'https://').replace('ws://', 'http://') + '/health';
+  fetch(url, { cache: 'no-store' })
+    .then(r => { if (r.ok) relayReady = true; })
+    .catch(() => {
+      if (attempts < 4) setTimeout(() => warmUpRelay(attempts + 1), 5000);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Ping relay au démarrage pour éviter le cold start (Render.com free tier) ──
-  fetch(RELAY_URL.replace('wss://', 'https://').replace('ws://', 'http://') + '/health').catch(() => {});
+  warmUpRelay();
 
   // ── Mode selection ──
   document.getElementById('btnModeSend').addEventListener('click', initSend);
