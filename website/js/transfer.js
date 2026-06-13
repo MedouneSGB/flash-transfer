@@ -45,7 +45,7 @@ const ACCEPTED_MIME = new Set([
 ]);
 const ACCEPTED_EXT = ['.txt', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.rar',
   '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.3gp', '.3g2'];
-const MAX_BYTES    = 1024 * 1024 * 1024;
+const MAX_BYTES    = 2 * 1024 * 1024 * 1024;
 const CHUNK_SIZE   = 64 * 1024;
 const RELAY_URL    = 'wss://flash-transfer-7vj7.onrender.com';
 const RELAY_CHUNK  = 256 * 1024;
@@ -182,7 +182,7 @@ function validateFile(file) {
   if (!ACCEPTED_MIME.has(file.type) && !ACCEPTED_EXT.includes(ext))
     return `Format non autorisé — acceptés : ${ACCEPTED_EXT.join(', ')}`;
   if (file.size === 0)       return 'Le fichier est vide.';
-  if (file.size > MAX_BYTES) return `Trop volumineux (${fmtSize(file.size)}) — max 1 Go.`;
+  if (file.size > MAX_BYTES) return `Trop volumineux (${fmtSize(file.size)}) — max 2 Go.`;
   return null;
 }
 
