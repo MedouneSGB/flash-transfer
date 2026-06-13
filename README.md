@@ -2,7 +2,7 @@
 
 > Transfert de fichiers ultra-rapide entre appareils — LAN & Internet, sans cloud, sans compte
 
-![Flash Transfer](https://img.shields.io/badge/version-1.6.0-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
+![Flash Transfer](https://img.shields.io/badge/version-1.6.1-FFD700?style=for-the-badge&logo=lightning&logoColor=black)
 ![Tauri](https://img.shields.io/badge/Tauri_2-0D0D0D?style=for-the-badge&logo=tauri&logoColor=FFD700)
 ![Rust](https://img.shields.io/badge/Rust-0D0D0D?style=for-the-badge&logo=rust&logoColor=FFD700)
 ![Platform](https://img.shields.io/badge/Windows_%7C_macOS_%7C_Linux-0D0D0D?style=for-the-badge&logoColor=FFD700)
@@ -197,12 +197,12 @@ npm run build
 Les installeurs générés se trouvent dans :
 ```
 src-tauri/target/release/bundle/
-├── nsis/          → Flash Transfer_1.6.0_x64-setup.exe  (Windows)
-├── msi/           → Flash Transfer_1.6.0_x64.msi        (Windows)
-├── dmg/           → Flash Transfer_1.6.0_x64.dmg        (macOS Intel)
-├── dmg/           → Flash Transfer_1.6.0_aarch64.dmg    (macOS Apple Silicon)
-├── appimage/      → flash-transfer_1.6.0_amd64.AppImage (Linux)
-└── deb/           → flash-transfer_1.6.0_amd64.deb      (Linux)
+├── nsis/          → Flash Transfer_1.6.1_x64-setup.exe  (Windows)
+├── msi/           → Flash Transfer_1.6.1_x64.msi        (Windows)
+├── dmg/           → Flash Transfer_1.6.1_x64.dmg        (macOS Intel)
+├── dmg/           → Flash Transfer_1.6.1_aarch64.dmg    (macOS Apple Silicon)
+├── appimage/      → flash-transfer_1.6.1_amd64.AppImage (Linux)
+└── deb/           → flash-transfer_1.6.1_amd64.deb      (Linux)
 ```
 
 ### CI/CD & versioning automatique
@@ -215,9 +215,9 @@ Le workflow GitHub Actions (`.github/workflows/release.yml`) se déclenche à ch
 Bump manuel de la version (synchronise `package.json`, `Cargo.toml`, `tauri.conf.json`, `README`) :
 
 ```bash
-npm run version:patch   # 1.6.0 -> 1.5.1
-npm run version:minor   # 1.6.0 -> 1.6.0
-npm run version:major   # 1.6.0 -> 2.0.0
+npm run version:patch   # 1.6.1 -> 1.5.1
+npm run version:minor   # 1.6.1 -> 1.6.1
+npm run version:major   # 1.6.1 -> 2.0.0
 # puis commit + push sur master → la CI tague et publie automatiquement
 ```
 
